@@ -93,6 +93,27 @@ class CourseTrackerTest {
     }
 
     @Test
+    fun waitsUntilNearStart() {
+        val tracker = CourseTracker(course(crosswalk))
+        // 코스 중간(약 330m)에서 시작하면 따라가지 않고 한 번만 알립니다.
+        assertEquals(listOf<CourseEvent>(CourseEvent.NotAtStart), tracker.onState(at(15, 0f)))
+        assertTrue(tracker.onState(at(15, 0f)).isEmpty())
+        assertEquals(0.0, tracker.alongM, 0.0)
+        val events = drive(tracker, 20f)
+        assertEquals(1, events.count { it is CourseEvent.Passed })
+    }
+
+    @Test
+    fun bigJumpSkipsCheckpointsWithoutJudging() {
+        val tracker = CourseTracker(course(crosswalk))
+        tracker.onState(at(0, 0f))
+        tracker.onState(at(1, 10f))
+        // 약 300m를 한 번에 건너뜀(위치 오류): 횡단보도(200m)를 판정하지 않습니다.
+        val events = tracker.onState(at(14, 0f))
+        assertTrue(events.none { it is CourseEvent.Passed || it is CourseEvent.Ahead })
+    }
+
+    @Test
     fun noLocationNoEvents() {
         val tracker = CourseTracker(course(crosswalk))
         assertTrue(tracker.onState(VehicleState(timeMs = 1, speedKmh = 30f)).isEmpty())

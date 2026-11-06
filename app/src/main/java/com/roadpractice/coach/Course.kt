@@ -56,6 +56,10 @@ data class CourseThresholds(
     val aheadNoticeM: Double = 80.0,
     val slowKmh: Float = 20f,
     val stopKmh: Float = 1f,
+    /** 출발점에서 이 거리 안에 들어와야 코스를 따라가기 시작합니다. */
+    val startRadiusM: Double = 100.0,
+    /** 한 번에 이보다 많이 건너뛰면 위치 오류로 보고 그 사이 지점은 판정하지 않습니다. */
+    val maxJumpM: Double = 150.0,
 )
 
 sealed interface CourseEvent {
@@ -65,6 +69,8 @@ sealed interface CourseEvent {
     data object OffRoute : CourseEvent
     data object BackOnRoute : CourseEvent
     data object Done : CourseEvent
+    /** 출발점에서 멀리 떨어져 아직 코스를 따라가지 않습니다(한 번만 알림). */
+    data object NotAtStart : CourseEvent
 }
 
 /**
@@ -81,6 +87,8 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
     private var zoneIndex = -1
     private var zoneMin = Float.MAX_VALUE
     private var zoneMax = 0f
+    private var onCourse = false
+    private var toldNotAtStart = false
     var alongM = 0.0
         private set
     var done = false
@@ -93,6 +101,16 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
         val lng = s.longitude ?: return emptyList()
         if (done) return emptyList()
         val out = ArrayList<CourseEvent>()
+        if (!onCourse) {
+            if (distanceMeters(lat, lng, course.lat[0], course.lng[0]) > t.startRadiusM) {
+                if (!toldNotAtStart) {
+                    toldNotAtStart = true
+                    out += CourseEvent.NotAtStart
+                }
+                return out
+            }
+            onCourse = true
+        }
         var best = idx
         var bestD = Double.MAX_VALUE
         val end = minOf(course.lat.size - 1, idx + t.windowAhead)
@@ -118,6 +136,11 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
         idx = best
         alongM = maxOf(alongM, course.cumM[idx])
         val kmh = s.speedKmh ?: 0f
+        if (alongM - prevAlong > t.maxJumpM) {
+            // 건너뛴 구간의 지점은 판정하지 않고 넘어갑니다.
+            course.checkpoints.forEachIndexed { i, cp -> if (cp.atM < alongM) { judged += i; announced += i } }
+            zoneIndex = -1
+        }
         checkpoints(prevAlong, kmh, out)
         val tenth = (fraction * 10).toInt()
         if (tenth != lastTenth) {

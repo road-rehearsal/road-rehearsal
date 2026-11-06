@@ -21,13 +21,14 @@ class ExamLog(context: Context) : SQLiteOpenHelper(context, "exam_log.db", null,
         val reviewed: Boolean,
         val course: String?,
         val courseDone: Boolean,
+        val interrupted: Boolean,
     )
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             "CREATE TABLE runs (id INTEGER PRIMARY KEY AUTOINCREMENT, mode TEXT NOT NULL, started_at INTEGER NOT NULL, " +
                 "ended_at INTEGER, score INTEGER, passed INTEGER, reviewed INTEGER NOT NULL DEFAULT 0, " +
-                "course TEXT, course_done INTEGER NOT NULL DEFAULT 0)",
+                "course TEXT, course_done INTEGER NOT NULL DEFAULT 0, interrupted INTEGER NOT NULL DEFAULT 0)",
         )
         db.execSQL(
             "CREATE TABLE lines (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER NOT NULL, kind TEXT NOT NULL, " +
@@ -40,6 +41,7 @@ class ExamLog(context: Context) : SQLiteOpenHelper(context, "exam_log.db", null,
             db.execSQL("ALTER TABLE runs ADD COLUMN course TEXT")
             db.execSQL("ALTER TABLE runs ADD COLUMN course_done INTEGER NOT NULL DEFAULT 0")
         }
+        if (oldVersion < 3) db.execSQL("ALTER TABLE runs ADD COLUMN interrupted INTEGER NOT NULL DEFAULT 0")
     }
 
     fun startRun(mode: CoachMode, now: Long, course: String? = null): Long =
@@ -48,6 +50,21 @@ class ExamLog(context: Context) : SQLiteOpenHelper(context, "exam_log.db", null,
             put("started_at", now)
             put("course", course)
         })
+
+    /**
+     * 서비스 없이 남은 끝나지 않은 주행을 닫습니다. 앱이 주행 중에 멈췄다는 뜻이므로 "중간에 멈춤"으로 표시하고,
+     * 그때까지 저장된 감점으로 결과표를 보여 줍니다. 닫은 개수를 돌려줍니다.
+     */
+    fun closeOpenRuns(now: Long): Int =
+        writableDatabase.update(
+            "runs",
+            ContentValues().apply {
+                put("ended_at", now)
+                put("interrupted", 1)
+            },
+            "ended_at IS NULL",
+            null,
+        )
 
     fun markCourseDone(runId: Long) {
         writableDatabase.update("runs", ContentValues().apply { put("course_done", 1) }, "id = ?", arrayOf(runId.toString()))
@@ -129,7 +146,7 @@ class ExamLog(context: Context) : SQLiteOpenHelper(context, "exam_log.db", null,
 
     fun recentRuns(limit: Int = RECENT_LIMIT): List<Run> =
         readableDatabase.rawQuery(
-            "SELECT id, mode, started_at, ended_at, score, passed, reviewed, course, course_done FROM runs ORDER BY id DESC LIMIT ?",
+            "SELECT id, mode, started_at, ended_at, score, passed, reviewed, course, course_done, interrupted FROM runs ORDER BY id DESC LIMIT ?",
             arrayOf(limit.toString()),
         ).use { c ->
             buildList {
@@ -145,6 +162,7 @@ class ExamLog(context: Context) : SQLiteOpenHelper(context, "exam_log.db", null,
                             reviewed = c.getInt(6) == 1,
                             course = if (c.isNull(7)) null else c.getString(7),
                             courseDone = c.getInt(8) == 1,
+                            interrupted = c.getInt(9) == 1,
                         ),
                     )
                 }
@@ -171,7 +189,7 @@ class ExamLog(context: Context) : SQLiteOpenHelper(context, "exam_log.db", null,
         }
 
     private companion object {
-        const val VERSION = 2
+        const val VERSION = 3
         const val KIND_CAR = "car"
         const val KIND_CAR_DQ = "car_dq"
         const val KIND_PASSENGER = "passenger"

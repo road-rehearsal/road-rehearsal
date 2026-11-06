@@ -3,6 +3,7 @@ package com.roadpractice.coach
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -24,11 +25,12 @@ class CoachService : Service() {
     private var runId: Long = NO_RUN
     private var lastLine = ""
     private var lastFraction = -1.0
+    private var lastNotice = ""
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        startForeground(NOTIFICATION_ID, buildNotification("준비됨"), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         val mode = intent?.getStringExtra(EXTRA_MODE)?.let { CoachMode.valueOf(it) } ?: CoachMode.PRACTICE
         if (tts == null) {
             tts = TtsSpeaker(applicationContext).also { queue = SpeechQueue(it) }
@@ -73,10 +75,15 @@ class CoachService : Service() {
                 }
                 is ExamEvent.Ended -> {
                     if (runId != NO_RUN) log?.endRun(runId, System.currentTimeMillis())
+                    // 시험 중에는 말하지 않지만 끝난 뒤 알리는 것은 별표 26 비고 마와 맞습니다.
+                    // 내비 등 다른 화면이 앞에 있어도 결과표로 돌아올 수 있게 알림을 띄웁니다.
+                    queue?.say(END_SENTENCE)
+                    notifyEnded()
                     Log.i(TAG, "EXAM_END run=$runId score=${current.result.score} passLine=${current.result.passedLine}")
                 }
             }
         }
+        updateNotification(current)
         val tracker = current.course
         tracker?.let { if (it.fraction != lastFraction) { lastFraction = it.fraction; Log.i(TAG, "COURSE at=${it.alongM.toInt()}m ${"%.3f".format(it.fraction)}") } }
         publish(Snapshot(current.mode, state, current.result, current.started, current.ended, runId, tracker?.course?.name, tracker?.fraction))
@@ -101,15 +108,57 @@ class CoachService : Service() {
         super.onDestroy()
     }
 
-    private fun buildNotification(): Notification {
+    /** 알림을 누르면 앱 화면으로 돌아옵니다. 내비가 앞에 있을 때 돌아오는 길입니다. */
+    private fun openApp(): PendingIntent = PendingIntent.getActivity(
+        this,
+        0,
+        Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+
+    private fun buildNotification(text: String): Notification {
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, getString(R.string.app_name), NotificationManager.IMPORTANCE_LOW),
         )
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.app_name))
+            .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_directions)
+            .setContentIntent(openApp())
+            .setOngoing(true)
             .build()
+    }
+
+    /** 진행 알림. 감점은 넣지 않고(시험 모드 침묵) 모드와 코스 진행만 보여 줍니다. 바뀔 때만 다시 올립니다. */
+    private fun updateNotification(s: CoachSession) {
+        val mode = if (s.mode == CoachMode.EXAM) "시험 모드" else "연습 모드"
+        val course = s.course?.let { " · ${it.course.name} ${(it.fraction * 10).toInt() * 10}%" } ?: ""
+        val text = when {
+            s.ended -> "$mode · 끝남. 눌러서 결과표 보기"
+            s.started -> "$mode 주행 중$course"
+            else -> "$mode 준비됨"
+        }
+        if (text == lastNotice) return
+        lastNotice = text
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(text))
+    }
+
+    private fun notifyEnded() {
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(END_CHANNEL_ID, "주행 끝", NotificationManager.IMPORTANCE_HIGH),
+        )
+        manager.notify(
+            END_NOTIFICATION_ID,
+            Notification.Builder(this, END_CHANNEL_ID)
+                .setContentTitle("주행이 끝났어요")
+                .setContentText("눌러서 결과표를 확인하세요")
+                .setSmallIcon(android.R.drawable.ic_menu_directions)
+                .setContentIntent(openApp())
+                .setAutoCancel(true)
+                .build(),
+        )
     }
 
     /** 화면에 보여 줄 현재 상황. */
@@ -128,6 +177,9 @@ class CoachService : Service() {
         private const val TAG = "RoadCoach"
         private const val CHANNEL_ID = "coach"
         private const val NOTIFICATION_ID = 1
+        private const val END_CHANNEL_ID = "coach_end"
+        private const val END_NOTIFICATION_ID = 2
+        const val END_SENTENCE = "주행이 끝났어요. 결과표는 앱에서 확인해요"
         private const val EXTRA_MODE = "mode"
         private const val EXTRA_COURSE = "course"
         const val NO_RUN = -1L

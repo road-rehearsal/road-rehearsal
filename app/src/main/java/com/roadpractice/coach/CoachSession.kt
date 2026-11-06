@@ -67,6 +67,7 @@ class CoachSession(
                 CourseEvent.BackOnRoute -> ExamEvent.Guide("코스로 돌아왔어요", e, t)
                 CourseEvent.Done -> ExamEvent.Guide("코스를 다 돌았어요. 안전한 곳에 세워 주세요", e, t)
                 is CourseEvent.Progress -> null
+                CourseEvent.NotAtStart -> ExamEvent.Guide("코스 출발점에서 시작하면 코스를 따라 안내해요", e, t)
             }
         }
     }

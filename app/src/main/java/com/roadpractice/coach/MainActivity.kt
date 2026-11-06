@@ -74,7 +74,14 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         connectUx()
+        // 서비스가 없는데 끝나지 않은 주행이 있으면 앱이 주행 중에 멈췄던 것입니다.
+        if (CoachService.latest == null) log.closeOpenRuns(System.currentTimeMillis())
         CoachService.listener = { render(it) }
+        render(CoachService.latest)
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
         render(CoachService.latest)
     }
 
@@ -170,7 +177,8 @@ class MainActivity : AppCompatActivity() {
             run?.course == null -> "코스 없이 달려 37·38·43번(서행·일시정지·횡단보도)은 보지 않았습니다."
             else -> "${courses.firstOrNull { it.id == run.course }?.name ?: run.course} · ${if (run.courseDone) "완주" else "완주 못 함"}"
         }
-        status.text = "결과표 (연습용 기준, 공식 채점 아님)\n$courseLine"
+        val stopped = if (run?.interrupted == true) "\n앱이 주행 중에 멈춰 그때까지의 기록만 있습니다." else ""
+        status.text = "결과표 (연습용 기준, 공식 채점 아님)\n$courseLine$stopped"
         sheetHeader = text(SECTION_TEXT_SP).also { review.addView(it) }
         if (moving) {
             review.addView(text(BODY_TEXT_SP, "주행 중에는 입력할 수 없습니다. 정차한 뒤 체크해 주세요."))
