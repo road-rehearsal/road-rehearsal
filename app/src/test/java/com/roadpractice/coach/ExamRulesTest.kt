@@ -334,6 +334,40 @@ class ExamRulesTest {
         assertFalse(ExamItem.SIGNAL_NOT_CANCELED in items)
     }
 
+    /** 11/6 에뮬레이터 확인에서 찾은 오탐: 출발 진로를 바르게 마치고 10m 안에 다른 깜빡이를 켜면 33번이 나던 것. */
+    @Test
+    fun newSignalSoonAfterProperEdgeIsNotCanceledFault() {
+        startDriving()
+        change { it.copy(turnSignal = TurnSignal.LEFT) }
+        run(500)
+        change { it.copy(steeringAbsDeg = 60f) }
+        run(1000)
+        change { it.copy(steeringAbsDeg = 0f) }
+        run(100)
+        change { it.copy(turnSignal = TurnSignal.OFF) }
+        run(300) // 약 1.7m: 출발 진로 끝 10m 안
+        change { it.copy(turnSignal = TurnSignal.RIGHT) }
+        run(6_000)
+        assertTrue(items.isEmpty())
+    }
+
+    /** 일반 회전도 같습니다: 돈 뒤 끄고 10m 안에 다른 깜빡이를 켜도 33번이 아닙니다. */
+    @Test
+    fun newSignalSoonAfterCanceledTurnIsNotCanceledFault() {
+        startDriving()
+        passEdge()
+        change { it.copy(turnSignal = TurnSignal.RIGHT) }
+        run(6_000)
+        change { it.copy(steeringAbsDeg = 60f) }
+        change { it.copy(steeringAbsDeg = 0f) }
+        run(100)
+        change { it.copy(turnSignal = TurnSignal.OFF) }
+        run(300)
+        change { it.copy(turnSignal = TurnSignal.LEFT) }
+        run(6_000)
+        assertFalse(ExamItem.SIGNAL_NOT_CANCELED in items)
+    }
+
     @Test
     fun unknownSignalIsNotScored() {
         put(s.copy(turnSignal = TurnSignal.UNKNOWN))

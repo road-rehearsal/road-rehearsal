@@ -184,6 +184,12 @@ class ExamRules(private val t: ExamThresholds = ExamThresholds()) {
         if (!signalOn && prev.turnSignal.isOn && signalKnown) {
             if (turning && s.isMoving) deduct(if (edgePhase) ExamItem.EDGE_SIGNAL_OFF else ExamItem.SIGNAL_NOT_KEPT, s, out)
             signalOnM = -1.0
+            // 다 돈 뒤 깜빡이를 껐으면 그 회전은 바르게 끝난 것입니다. 회전 끝 기억을 지워,
+            // 10m 안에 켠 다음 깜빡이를 앞 회전의 "신호 미중지"(13·33번)로 보지 않게 합니다(11/6 에뮬레이터에서 찾은 오탐).
+            if (!turning && turnEndM >= 0) {
+                turnEndM = -1.0
+                edgePhase = false
+            }
         }
         val steer = s.steeringAbsDeg
         if (steer != null) {

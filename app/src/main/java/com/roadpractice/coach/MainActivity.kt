@@ -26,6 +26,8 @@ import com.roadpractice.coach.ui.DrivingScreen
 import com.roadpractice.coach.ui.DrivingUi
 import com.roadpractice.coach.ui.HomeScreen
 import com.roadpractice.coach.ui.HomeUi
+import com.roadpractice.coach.ui.ReadyScreen
+import com.roadpractice.coach.ui.ReadyUi
 import com.roadpractice.coach.ui.ReviewMarks
 import com.roadpractice.coach.ui.ReviewScreen
 import com.roadpractice.coach.ui.ReviewUi
@@ -128,6 +130,13 @@ class MainActivity : ComponentActivity() {
                 DrivingUi(s.mode, s.courseName?.let(::shortName), s.courseFraction, s.lastGuide, isEmulator),
             )
             reviewRun != null -> Review(reviewRun, moving)
+            s != null && !s.started && !s.ended -> ReadyScreen(
+                ReadyUi(s.mode, s.courseName?.let(::shortName), moving),
+                onCancel = {
+                    CoachService.stop(this)
+                    snapshot = null
+                },
+            )
             else -> Home(moving)
         }
     }

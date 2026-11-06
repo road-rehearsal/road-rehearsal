@@ -145,6 +145,48 @@ private fun History(ui: HomeUi, modifier: Modifier) {
     }
 }
 
+// ---------------------------------------------------------------- 시작 대기
+
+data class ReadyUi(val mode: CoachMode, val course: String?, val moving: Boolean)
+
+/**
+ * 모드를 고른 뒤 기어를 P에서 D로 바꾸기 전까지의 화면.
+ * 이 화면이 없으면 시작을 눌러도 처음 화면이 그대로라 눌리지 않은 것처럼 보였습니다(11/6 사용자 검토).
+ */
+@Composable
+fun ReadyScreen(ui: ReadyUi, onCancel: () -> Unit) {
+    val sp = LocalSpacing.current
+    Column(
+        Modifier.fillMaxSize().padding(horizontal = sp.xl, vertical = sp.l),
+        verticalArrangement = Arrangement.spacedBy(sp.l, Alignment.CenterVertically),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(sp.s), verticalAlignment = Alignment.CenterVertically) {
+            Tag(modeName(ui.mode), if (ui.mode == CoachMode.EXAM) Road.Ink else Road.SignBlue, filled = true, large = true)
+            Tag(ui.course ?: "코스 없이", large = true)
+        }
+        Panel(Modifier.fillMaxWidth().heightIn(min = 180.dp), color = Road.Asphalt) {
+            Box(Modifier.padding(sp.l), contentAlignment = Alignment.CenterStart) {
+                Text("기어를 D로 바꾸면 시작해요", style = MaterialTheme.typography.displayMedium, color = Road.LaneWhite)
+            }
+        }
+        Text(
+            if (ui.mode == CoachMode.EXAM) "시험 모드는 끝날 때까지 감점을 말하지 않아요. 끝나면 P로 바꾸고 운전석 문을 열어 주세요."
+            else "실수하면 그 순간 한 문장으로 알려 드려요. 끝나면 P로 바꾸고 운전석 문을 열어 주세요.",
+            style = MaterialTheme.typography.bodyLarge, color = Road.Graphite,
+        )
+        if (!ui.moving) {
+            Surface(
+                onClick = onCancel, shape = MaterialTheme.shapes.medium, color = Road.Sheet,
+                border = BorderStroke(1.5.dp, Road.Graphite), modifier = Modifier.heightIn(min = 72.dp),
+            ) {
+                Box(Modifier.padding(horizontal = sp.l, vertical = sp.m), contentAlignment = Alignment.Center) {
+                    Text("취소하고 처음으로", style = MaterialTheme.typography.titleMedium, color = Road.Ink)
+                }
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------- 주행 중
 
 data class DrivingUi(val mode: CoachMode, val course: String?, val fraction: Double?, val guide: String?, val mockLocation: Boolean)
