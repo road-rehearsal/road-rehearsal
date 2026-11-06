@@ -143,7 +143,7 @@ class MainActivity : ComponentActivity() {
                     mode = run.mode,
                     course = run.course?.let { id -> courses.firstOrNull { it.id == id }?.name?.let(::shortName) ?: id },
                     score = run.score,
-                    passed = run.passedLine,
+                    passed = if (run.interrupted) null else run.passedLine,
                     note = when {
                         run.interrupted -> "중간에 멈춤"
                         run.endedAt == null -> "진행 중"

@@ -10,6 +10,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -72,20 +73,27 @@ val Pretendard = FontFamily(
 private const val TABULAR = "tnum"
 
 /**
+ * 한글은 기본으로 글자 단위로 줄이 바뀌어 낱글자 하나만 다음 줄로 넘어가기도 합니다. 어절 단위(Phrase)로 바꿉니다(Android 13 이상).
+ * 제목은 줄 길이를 고르게(Heading), 본문은 문단 방식(Paragraph)으로 나눕니다.
+ */
+private val HeadBreak = LineBreak.Heading.copy(wordBreak = LineBreak.WordBreak.Phrase)
+private val BodyBreak = LineBreak.Paragraph.copy(wordBreak = LineBreak.WordBreak.Phrase)
+
+/**
  * 글자 단계. 차에서 팔 길이(약 70cm) 거리에서 읽는 것을 기준으로 본문을 24sp로 둡니다.
  * displayLarge는 점수 한 곳에만 씁니다.
  */
 private val RoadTypography = Typography(
-    displayLarge = TextStyle(fontFamily = Pretendard, fontWeight = FontWeight.ExtraBold, fontSize = 112.sp, lineHeight = 112.sp, letterSpacing = (-3).sp, fontFeatureSettings = TABULAR),
-    displayMedium = TextStyle(fontFamily = Pretendard, fontWeight = FontWeight.ExtraBold, fontSize = 64.sp, lineHeight = 72.sp, letterSpacing = (-1.5).sp),
-    headlineLarge = TextStyle(fontFamily = Pretendard, fontWeight = FontWeight.Bold, fontSize = 44.sp, lineHeight = 54.sp, letterSpacing = (-0.8).sp),
-    headlineMedium = TextStyle(fontFamily = Pretendard, fontWeight = FontWeight.Bold, fontSize = 34.sp, lineHeight = 44.sp, letterSpacing = (-0.5).sp),
-    titleLarge = TextStyle(fontFamily = Pretendard, fontWeight = FontWeight.Bold, fontSize = 28.sp, lineHeight = 36.sp),
-    titleMedium = TextStyle(fontFamily = Pretendard, fontWeight = FontWeight.SemiBold, fontSize = 24.sp, lineHeight = 32.sp),
-    bodyLarge = TextStyle(fontFamily = Pretendard, fontWeight = FontWeight.Medium, fontSize = 24.sp, lineHeight = 34.sp),
-    bodyMedium = TextStyle(fontFamily = Pretendard, fontWeight = FontWeight.Normal, fontSize = 20.sp, lineHeight = 30.sp),
-    labelLarge = TextStyle(fontFamily = Pretendard, fontWeight = FontWeight.SemiBold, fontSize = 22.sp, lineHeight = 28.sp, fontFeatureSettings = TABULAR),
-    labelMedium = TextStyle(fontFamily = Pretendard, fontWeight = FontWeight.Medium, fontSize = 18.sp, lineHeight = 24.sp, fontFeatureSettings = TABULAR),
+    displayLarge = TextStyle(lineBreak = HeadBreak, fontFamily = Pretendard, fontWeight = FontWeight.ExtraBold, fontSize = 112.sp, lineHeight = 112.sp, letterSpacing = (-3).sp, fontFeatureSettings = TABULAR),
+    displayMedium = TextStyle(lineBreak = HeadBreak, fontFamily = Pretendard, fontWeight = FontWeight.ExtraBold, fontSize = 64.sp, lineHeight = 72.sp, letterSpacing = (-1.5).sp),
+    headlineLarge = TextStyle(lineBreak = HeadBreak, fontFamily = Pretendard, fontWeight = FontWeight.Bold, fontSize = 44.sp, lineHeight = 54.sp, letterSpacing = (-0.8).sp),
+    headlineMedium = TextStyle(lineBreak = HeadBreak, fontFamily = Pretendard, fontWeight = FontWeight.Bold, fontSize = 34.sp, lineHeight = 44.sp, letterSpacing = (-0.5).sp),
+    titleLarge = TextStyle(lineBreak = HeadBreak, fontFamily = Pretendard, fontWeight = FontWeight.Bold, fontSize = 28.sp, lineHeight = 36.sp),
+    titleMedium = TextStyle(lineBreak = HeadBreak, fontFamily = Pretendard, fontWeight = FontWeight.SemiBold, fontSize = 24.sp, lineHeight = 32.sp),
+    bodyLarge = TextStyle(lineBreak = BodyBreak, fontFamily = Pretendard, fontWeight = FontWeight.Medium, fontSize = 24.sp, lineHeight = 34.sp),
+    bodyMedium = TextStyle(lineBreak = BodyBreak, fontFamily = Pretendard, fontWeight = FontWeight.Normal, fontSize = 20.sp, lineHeight = 30.sp),
+    labelLarge = TextStyle(lineBreak = BodyBreak, fontFamily = Pretendard, fontWeight = FontWeight.SemiBold, fontSize = 22.sp, lineHeight = 28.sp, fontFeatureSettings = TABULAR),
+    labelMedium = TextStyle(lineBreak = BodyBreak, fontFamily = Pretendard, fontWeight = FontWeight.Medium, fontSize = 18.sp, lineHeight = 24.sp, fontFeatureSettings = TABULAR),
 )
 
 /** 모서리는 두 가지만 씁니다. 판(큰 카드)은 크게, 누르는 것은 작게. */

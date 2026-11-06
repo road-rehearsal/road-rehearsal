@@ -1,5 +1,6 @@
 package com.roadpractice.coach.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -21,6 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.runtime.Composable
@@ -91,7 +94,7 @@ fun HomeScreen(ui: HomeUi, onCourse: (Int) -> Unit, onStart: (CoachMode) -> Unit
     if (isWide()) {
         Row(Modifier.fillMaxSize().padding(sp.l), horizontalArrangement = Arrangement.spacedBy(sp.l)) {
             start(Modifier.weight(1.5f).verticalScroll(rememberScrollState()))
-            history(Modifier.weight(1f).fillMaxHeight())
+            history(Modifier.weight(1f))
         }
     } else {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(sp.m), verticalArrangement = Arrangement.spacedBy(sp.l)) {
@@ -108,7 +111,11 @@ private fun History(ui: HomeUi, modifier: Modifier) {
         Column(Modifier.padding(sp.l), verticalArrangement = Arrangement.spacedBy(sp.s)) {
             Text("지난 연습", style = MaterialTheme.typography.titleLarge, color = Road.Ink)
             if (ui.runs.isEmpty()) {
-                Text("아직 기록이 없어요. 첫 주행을 마치면 여기에 점수가 쌓여요.", style = MaterialTheme.typography.bodyMedium, color = Road.Graphite)
+                Text("아직 기록이 없어요", style = MaterialTheme.typography.titleMedium, color = Road.Ink, modifier = Modifier.padding(top = sp.s))
+                Text(
+                    "코스를 고르고 연습이나 시험을 한 번 마치면, 점수와 자주 틀린 항목이 여기에 쌓여요.",
+                    style = MaterialTheme.typography.bodyLarge, color = Road.Graphite,
+                )
             }
             ui.runs.forEach { run ->
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
@@ -119,7 +126,7 @@ private fun History(ui: HomeUi, modifier: Modifier) {
                         modifier = Modifier.widthIn(min = 72.dp),
                     )
                     Column(Modifier.weight(1f)) {
-                        Text(modeName(run.mode) + (run.course?.let { " · $it" } ?: ""), style = MaterialTheme.typography.bodyMedium, color = Road.Ink)
+                        Text(modeName(run.mode) + (run.course?.let { " · $it" } ?: ""), style = MaterialTheme.typography.bodyLarge, color = Road.Ink)
                         if (run.note != null) Text(run.note, style = MaterialTheme.typography.labelMedium, color = Road.Graphite)
                     }
                 }
@@ -129,7 +136,7 @@ private fun History(ui: HomeUi, modifier: Modifier) {
                 Text("자주 틀린 항목", style = MaterialTheme.typography.titleMedium, color = Road.Ink)
                 ui.often.forEach { (title, count) ->
                     Row(Modifier.fillMaxWidth()) {
-                        Text(title, style = MaterialTheme.typography.bodyMedium, color = Road.Ink, modifier = Modifier.weight(1f))
+                        Text(title, style = MaterialTheme.typography.bodyLarge, color = Road.Ink, modifier = Modifier.weight(1f))
                         Text("${count}회", style = MaterialTheme.typography.labelLarge, color = Road.RedPen)
                     }
                 }
@@ -151,13 +158,13 @@ fun DrivingScreen(ui: DrivingUi) {
         verticalArrangement = Arrangement.spacedBy(sp.l, Alignment.CenterVertically),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(sp.s), verticalAlignment = Alignment.CenterVertically) {
-            Tag(modeName(ui.mode), if (ui.mode == CoachMode.EXAM) Road.Ink else Road.SignBlue, filled = true)
-            if (ui.mockLocation) Tag("모의 위치")
+            Tag(modeName(ui.mode), if (ui.mode == CoachMode.EXAM) Road.Ink else Road.SignBlue, filled = true, large = true)
+            Text(
+                if (ui.mode == CoachMode.EXAM) "끝날 때까지 감점은 말하지 않아요" else "실수하면 바로 한 문장으로 알려 줘요",
+                style = MaterialTheme.typography.bodyLarge, color = Road.Graphite, modifier = Modifier.weight(1f),
+            )
+            if (ui.mockLocation) Tag("모의 위치", large = true)
         }
-        Text(
-            if (ui.mode == CoachMode.EXAM) "시험 중이에요" else "연습 중이에요",
-            style = MaterialTheme.typography.displayMedium, color = Road.Ink,
-        )
         if (ui.course != null) {
             Column(verticalArrangement = Arrangement.spacedBy(sp.s)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
@@ -167,9 +174,13 @@ fun DrivingScreen(ui: DrivingUi) {
                 CourseRoad(ui.fraction ?: 0.0)
             }
         }
-        if (ui.guide != null) {
-            Panel(Modifier.fillMaxWidth(), color = Road.Ink) {
-                Text(ui.guide, style = MaterialTheme.typography.headlineMedium, color = Road.LaneWhite, modifier = Modifier.padding(sp.l))
+        Panel(Modifier.fillMaxWidth().heightIn(min = 180.dp), color = Road.Ink) {
+            Box(Modifier.padding(horizontal = sp.l, vertical = sp.l), contentAlignment = Alignment.CenterStart) {
+                Text(
+                    ui.guide ?: if (ui.course != null) "${ui.course}를 따라가요" else "차의 조작을 보고 있어요",
+                    style = MaterialTheme.typography.displayMedium,
+                    color = if (ui.guide != null) Road.LaneWhite else Road.LaneWhite.copy(alpha = 0.8f),
+                )
             }
         }
         Text("끝나면 P로 바꾸고 운전석 문을 열어 주세요", style = MaterialTheme.typography.bodyLarge, color = Road.Graphite)
@@ -199,8 +210,10 @@ data class ReviewMarks(
 fun ReviewScreen(ui: ReviewUi, marks: ReviewMarks, onMarks: (ReviewMarks) -> Unit, onSave: () -> Unit) {
     val sp = LocalSpacing.current
     val sheet = ScoreSheet.build(ui.car, marks.excluded, marks.passenger.toList(), ui.carDq, marks.passengerDq.toList())
-    val summary: @Composable (Modifier) -> Unit = { m -> Summary(ui, marks, sheet, onMarks, onSave, m) }
-    if (isWide()) {
+    val wide = isWide()
+    // 좁은 창에서는 요약이 바깥 목록 안에 들어가므로 스스로 스크롤하면 안 됩니다(무한 높이로 앱이 멈춤, 11/6 실측).
+    val summary: @Composable (Modifier) -> Unit = { m -> Summary(ui, marks, sheet, onMarks, onSave, m, scrollable = wide) }
+    if (wide) {
         Row(Modifier.fillMaxSize().padding(sp.l), horizontalArrangement = Arrangement.spacedBy(sp.l)) {
             summary(Modifier.weight(1f).fillMaxHeight())
             if (ui.moving) StopFirst("주행 중에는 체크할 수 없어요", "차를 세우면 동승자 체크가 다시 보여요.", Modifier.weight(1f))
@@ -220,30 +233,55 @@ fun ReviewScreen(ui: ReviewUi, marks: ReviewMarks, onMarks: (ReviewMarks) -> Uni
 }
 
 @Composable
-private fun Summary(ui: ReviewUi, marks: ReviewMarks, sheet: ScoreSheet, onMarks: (ReviewMarks) -> Unit, onSave: () -> Unit, modifier: Modifier) {
+private fun Summary(
+    ui: ReviewUi, marks: ReviewMarks, sheet: ScoreSheet, onMarks: (ReviewMarks) -> Unit, onSave: () -> Unit,
+    modifier: Modifier, scrollable: Boolean,
+) {
     val sp = LocalSpacing.current
     val passed = sheet.passedLine
+    val disqualified = sheet.disqualifications.isNotEmpty()
+    // 중간에 멈춘 기록은 합격·불합격을 말하지 않습니다(남은 구간을 모름).
+    val tone = when {
+        ui.interrupted -> Road.Graphite
+        passed -> Road.SignGreen
+        else -> Road.RedPen
+    }
+    val verdict = when {
+        ui.interrupted -> "기록이 중간에 끊겼어요"
+        disqualified -> "실격 사유가 있어요"
+        passed -> "합격선을 넘었어요"
+        else -> "합격선까지 ${ScoreSheet.PASS_SCORE - sheet.score}점"
+    }
     Panel(modifier) {
-        Column(Modifier.verticalScroll(rememberScrollState()).padding(sp.l), verticalArrangement = Arrangement.spacedBy(sp.s)) {
+        val scroll = rememberScrollState()
+        Column(
+            (if (scrollable) Modifier.verticalScroll(scroll) else Modifier).padding(sp.l),
+            verticalArrangement = Arrangement.spacedBy(sp.s),
+        ) {
             Row(horizontalArrangement = Arrangement.spacedBy(sp.s), verticalAlignment = Alignment.CenterVertically) {
                 Tag(modeName(ui.mode), if (ui.mode == CoachMode.EXAM) Road.Ink else Road.SignBlue, filled = true)
                 Tag(ui.course?.let { "$it · ${if (ui.courseDone) "완주" else "완주 못 함"}" } ?: "코스 없음")
             }
             Row(verticalAlignment = Alignment.Bottom) {
-                Text("${sheet.score}", style = MaterialTheme.typography.displayLarge, color = if (passed) Road.SignGreen else Road.RedPen)
+                Text("${sheet.score}", style = MaterialTheme.typography.displayLarge, color = tone)
                 Text("점", style = MaterialTheme.typography.headlineMedium, color = Road.Ink, modifier = Modifier.padding(start = 6.dp, bottom = 14.dp))
                 Spacer(Modifier.weight(1f))
                 Text(
-                    when {
-                        sheet.disqualifications.isNotEmpty() -> "실격 사유가 있어요"
-                        passed -> "합격선을 넘었어요"
-                        else -> "합격선까지 ${ScoreSheet.PASS_SCORE - sheet.score}점"
-                    },
-                    style = MaterialTheme.typography.titleLarge, color = Road.Ink, textAlign = TextAlign.End,
+                    verdict,
+                    style = MaterialTheme.typography.titleLarge, color = if (disqualified && !ui.interrupted) Road.RedPen else Road.Ink, textAlign = TextAlign.End,
                     modifier = Modifier.padding(bottom = 18.dp),
                 )
             }
-            ScoreRoad(sheet.score, ScoreSheet.PASS_SCORE, passed)
+            ScoreRoad(sheet.score, ScoreSheet.PASS_SCORE, tone)
+            if (disqualified) {
+                // 실격은 점수와 상관없이 결과를 정하므로 점수 도로 바로 아래에 둡니다.
+                Surface(shape = MaterialTheme.shapes.medium, color = Road.Sheet, border = BorderStroke(2.dp, Road.RedPen), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(sp.m), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("실격 사유", style = MaterialTheme.typography.labelLarge, color = Road.RedPen)
+                        sheet.disqualifications.forEach { Text(it, style = MaterialTheme.typography.titleMedium, color = Road.Ink) }
+                    }
+                }
+            }
             Text(
                 "차가 본 항목 −${sheet.carDeducted} · 동승자 체크 −${sheet.passengerDeducted}. 연습용 기준이며 공식 채점이 아니에요.",
                 style = MaterialTheme.typography.bodyMedium, color = Road.Graphite,
@@ -252,7 +290,7 @@ private fun Summary(ui: ReviewUi, marks: ReviewMarks, sheet: ScoreSheet, onMarks
                 Text("코스 없이 달려 서행·일시정지·횡단보도(37·38·43번)는 보지 않았어요.", style = MaterialTheme.typography.bodyMedium, color = Road.Graphite)
             }
             if (ui.interrupted) {
-                Text("앱이 주행 중에 멈춰 그때까지의 기록만 있어요.", style = MaterialTheme.typography.bodyMedium, color = Road.RedPen)
+                Text("앱이 주행 중에 멈춰 그때까지의 기록만 있어요. 점수는 참고로만 보세요.", style = MaterialTheme.typography.bodyLarge, color = Road.Ink)
             }
             SectionTitle("차가 본 항목", trailing = "${ui.car.size}개")
             if (ui.car.isEmpty()) Text("차가 본 실수가 없어요.", style = MaterialTheme.typography.bodyLarge, color = Road.Graphite)
@@ -260,9 +298,6 @@ private fun Summary(ui: ReviewUi, marks: ReviewMarks, sheet: ScoreSheet, onMarks
                 CarItemRow(item.number, item.title, item.points, i in marks.excluded, enabled = !ui.moving) { on ->
                     onMarks(marks.copy(excluded = if (on) marks.excluded + i else marks.excluded - i))
                 }
-            }
-            sheet.disqualifications.forEach { title ->
-                Text("실격 사유 · $title", style = MaterialTheme.typography.bodyLarge, color = Road.RedPen)
             }
             if (!ui.moving) {
                 Spacer(Modifier.height(sp.s))
@@ -281,20 +316,30 @@ private fun LazyListScope.passengerSheet(marks: ReviewMarks, onMarks: (ReviewMar
         }
     }
     PassengerItem.entries.groupBy { it.task }.forEach { (task, items) ->
-        item(key = "task-$task") { SectionTitle(task, trailing = items.count { it in marks.passenger }.takeIf { it > 0 }?.let { "${it}개" }, trailingColor = Road.RedPen) }
+        item(key = "task-$task") { TaskTitle(task, items.count { it in marks.passenger }) }
         items(items, key = { it.name }) { item ->
             MarkRow("${item.number}번 ${item.title}", item.points, item in marks.passenger, { on ->
                 onMarks(marks.copy(passenger = if (on) marks.passenger + item else marks.passenger - item))
             })
         }
     }
-    item(key = "dq") { SectionTitle("동승자가 본 실격 사유") }
+    item(key = "dq") { TaskTitle("동승자가 본 실격 사유", marks.passengerDq.size) }
     items(PassengerDisqualification.entries, key = { "dq-${it.name}" }) { reason ->
         MarkRow(reason.title, null, reason in marks.passengerDq, { on ->
             onMarks(marks.copy(passengerDq = if (on) marks.passengerDq + reason else marks.passengerDq - reason))
         })
     }
     item { Spacer(Modifier.height(48.dp)) }
+}
+
+/** 동승자 체크의 과제 제목. 항목(24sp)과 구분되게 작고 회색으로, 위쪽 여백을 크게 둡니다. */
+@Composable
+private fun TaskTitle(text: String, checked: Int) {
+    Row(Modifier.fillMaxWidth().padding(top = 28.dp, bottom = 6.dp, start = 12.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(text, style = MaterialTheme.typography.labelLarge, color = Road.Graphite, modifier = Modifier.weight(1f))
+        if (checked > 0) Text("${checked}개 체크", style = MaterialTheme.typography.labelMedium, color = Road.RedPen)
+    }
+    HorizontalDivider(color = Road.Rule, modifier = Modifier.padding(horizontal = 12.dp))
 }
 
 /** 주행 중에 입력을 막을 때 보여 주는 판. */

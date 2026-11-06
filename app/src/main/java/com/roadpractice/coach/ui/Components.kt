@@ -11,8 +11,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,7 +27,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -56,10 +53,10 @@ import androidx.compose.ui.unit.dp
  * 0~100을 도로 한 구간으로 그리고, 합격선 70점은 노란 중앙선, 점수는 그 위의 차 위치입니다.
  */
 @Composable
-fun ScoreRoad(score: Int, passLine: Int, passed: Boolean, modifier: Modifier = Modifier, height: Dp = 64.dp) {
+fun ScoreRoad(score: Int, passLine: Int, carColor: Color, modifier: Modifier = Modifier, height: Dp = 64.dp) {
     val target = (score.coerceIn(0, 100) / 100f)
     val pos by animateFloatAsState(target, tween(600), label = "score")
-    val carColor by animateColorAsState(if (passed) Road.SignGreen else Road.RedPen, tween(300), label = "car")
+    val car by animateColorAsState(carColor, tween(300), label = "car")
     Column(modifier.semantics { contentDescription = "점수 ${score}점, 합격선 ${passLine}점" }) {
         Canvas(Modifier.fillMaxWidth().height(height)) {
             val r = size.height / 2
@@ -81,7 +78,7 @@ fun ScoreRoad(score: Int, passLine: Int, passed: Boolean, modifier: Modifier = M
             val carH = size.height * 0.56f
             val cx = r + (size.width - 2 * r) * pos
             drawRoundRect(
-                carColor, topLeft = Offset(cx - carW / 2, (size.height - carH) / 2), size = Size(carW, carH),
+                car, topLeft = Offset(cx - carW / 2, (size.height - carH) / 2), size = Size(carW, carH),
                 cornerRadius = CornerRadius(carH * 0.35f, carH * 0.35f),
             )
             drawRoundRect(
@@ -121,15 +118,16 @@ fun CourseRoad(fraction: Double, modifier: Modifier = Modifier) {
 
 /** 작은 표지. 상태나 출처를 붙일 때 씁니다. */
 @Composable
-fun Tag(text: String, color: Color = Road.Graphite, filled: Boolean = false) {
+fun Tag(text: String, color: Color = Road.Graphite, filled: Boolean = false, large: Boolean = false) {
     Surface(
         shape = RoundedCornerShape(50),
         color = if (filled) color else Color.Transparent,
         border = if (filled) null else BorderStroke(1.5.dp, color),
     ) {
         Text(
-            text, style = MaterialTheme.typography.labelMedium, color = if (filled) Road.Sheet else color,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+            text, style = if (large) MaterialTheme.typography.labelLarge else MaterialTheme.typography.labelMedium,
+            color = if (filled) Road.Sheet else color,
+            modifier = Modifier.padding(horizontal = if (large) 20.dp else 14.dp, vertical = if (large) 10.dp else 6.dp),
         )
     }
 }
@@ -157,14 +155,17 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier, trailing: String? 
 fun ModeTile(title: String, line: String, accent: Color, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val sp = LocalSpacing.current
     Surface(onClick = onClick, modifier = modifier.heightIn(min = 260.dp), shape = MaterialTheme.shapes.large, color = Road.Sheet) {
-        Row(Modifier.height(IntrinsicSize.Min)) {
-            Box(Modifier.width(14.dp).fillMaxHeight().background(accent))
-            Column(Modifier.padding(horizontal = sp.l, vertical = sp.l).heightIn(min = 260.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                Column(verticalArrangement = Arrangement.spacedBy(sp.s)) {
-                    Text(title, style = MaterialTheme.typography.displayMedium, color = Road.Ink)
-                    Text(line, style = MaterialTheme.typography.bodyLarge, color = Road.Graphite)
-                }
-                Text("$title 시작", style = MaterialTheme.typography.titleMedium, color = accent)
+        Column(Modifier.padding(sp.l).heightIn(min = 260.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Column(verticalArrangement = Arrangement.spacedBy(sp.s)) {
+                Text(title, style = MaterialTheme.typography.displayMedium, color = Road.Ink)
+                Text(line, style = MaterialTheme.typography.bodyLarge, color = Road.Graphite)
+            }
+            // 판 전체가 눌리지만, 무엇이 일어나는지 이름 붙인 버튼 모양을 둡니다.
+            Surface(shape = MaterialTheme.shapes.small, color = accent) {
+                Text(
+                    "$title 시작", style = MaterialTheme.typography.titleMedium, color = Road.Sheet,
+                    modifier = Modifier.padding(horizontal = sp.m, vertical = 14.dp),
+                )
             }
         }
     }
@@ -247,7 +248,8 @@ fun CarItemRow(number: Int, title: String, points: Int, excluded: Boolean, enabl
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            Modifier.size(44.dp).clip(CircleShape).background(if (excluded) Road.Rule else Road.Ink),
+            Modifier.size(44.dp).clip(CircleShape).background(if (excluded) Road.Paper else Road.Ink)
+                .border(1.5.dp, if (excluded) Road.Graphite else Road.Ink, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             Text("$number", style = MaterialTheme.typography.labelMedium, color = if (excluded) Road.Graphite else Road.Sheet)
@@ -262,12 +264,17 @@ fun CarItemRow(number: Int, title: String, points: Int, excluded: Boolean, enabl
         Text("−$points", style = MaterialTheme.typography.labelLarge, color = if (excluded) Road.Graphite else Road.RedPen)
         if (enabled) {
             Spacer(Modifier.width(sp.m))
-            Text("제외", style = MaterialTheme.typography.labelMedium, color = Road.Graphite)
-            Spacer(Modifier.width(sp.xs))
-            Switch(
-                checked = excluded, onCheckedChange = onExclude,
-                colors = SwitchDefaults.colors(checkedTrackColor = Road.Graphite, checkedThumbColor = Road.Sheet),
-            )
+            // 차가 잘못 본 항목을 빼는 버튼. 눌린 상태는 채워서 보여 줍니다.
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = if (excluded) Road.Graphite else Road.Sheet,
+                border = BorderStroke(1.5.dp, Road.Graphite),
+                modifier = Modifier.heightIn(min = 56.dp).toggleable(value = excluded, role = Role.Switch, onValueChange = onExclude),
+            ) {
+                Box(Modifier.padding(horizontal = 20.dp, vertical = 14.dp), contentAlignment = Alignment.Center) {
+                    Text(if (excluded) "제외됨" else "제외", style = MaterialTheme.typography.labelLarge, color = if (excluded) Road.Sheet else Road.Graphite)
+                }
+            }
         }
     }
 }
