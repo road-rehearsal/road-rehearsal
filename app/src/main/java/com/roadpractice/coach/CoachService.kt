@@ -26,6 +26,7 @@ class CoachService : Service() {
     private var lastLine = ""
     private var lastFraction = -1.0
     private var lastNotice = ""
+    private var lastGuide: String? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -40,6 +41,7 @@ class CoachService : Service() {
             .onFailure { Log.w(TAG, "course load failed: ${it.message}") }.getOrNull()
         session = CoachSession(mode, say = { queue?.say(it) }, course = course?.let { CourseTracker(it) })
         runId = NO_RUN
+        lastGuide = null
         Log.i(TAG, "MODE $mode course=${course?.id ?: "-"}")
         publish(Snapshot(mode, hub?.state, ExamResult(emptyList(), emptyList()), started = false, ended = false, runId = NO_RUN))
         if (hub == null) {
@@ -70,6 +72,7 @@ class CoachService : Service() {
                     Log.i(TAG, "DISQUALIFY ${event.reason.title}")
                 }
                 is ExamEvent.Guide -> {
+                    lastGuide = event.text
                     if (event.course == CourseEvent.Done && runId != NO_RUN) log?.markCourseDone(runId)
                     Log.i(TAG, "GUIDE ${event.course} \"${event.text}\"")
                 }
@@ -86,7 +89,7 @@ class CoachService : Service() {
         updateNotification(current)
         val tracker = current.course
         tracker?.let { if (it.fraction != lastFraction) { lastFraction = it.fraction; Log.i(TAG, "COURSE at=${it.alongM.toInt()}m ${"%.3f".format(it.fraction)}") } }
-        publish(Snapshot(current.mode, state, current.result, current.started, current.ended, runId, tracker?.course?.name, tracker?.fraction))
+        publish(Snapshot(current.mode, state, current.result, current.started, current.ended, runId, tracker?.course?.name, tracker?.fraction, lastGuide))
     }
 
     private fun publish(snapshot: Snapshot) {
@@ -171,6 +174,8 @@ class CoachService : Service() {
         val runId: Long,
         val courseName: String? = null,
         val courseFraction: Double? = null,
+        /** 마지막 코스 안내 문장. 감점 문장은 넣지 않습니다(시험 모드 침묵). */
+        val lastGuide: String? = null,
     )
 
     companion object {

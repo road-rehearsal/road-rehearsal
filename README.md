@@ -16,6 +16,9 @@ adb shell am start --user 10 -n com.roadpractice.coach/.MainActivity
 adb logcat -s RoadCoach:I
 ```
 
+## 화면
+Jetpack Compose와 Material 3로 만들었습니다. 디자인 기준은 [DESIGN.md](DESIGN.md)이고, 앱 창이 넓으면 두 판, 좁으면 한 줄로 놓습니다. 글꼴 Pretendard는 SIL Open Font License 1.1입니다([licenses/Pretendard-OFL.txt](licenses/Pretendard-OFL.txt)).
+
 ## 구조
 - `SignalHub`: 차량 신호와 위치를 `VehicleState` 하나로 모읍니다. 차량 제어는 호출하지 않습니다.
 - `CoachService`: 포그라운드 서비스. 내비가 앞에 있어도 신호 수신이 멈추지 않게 합니다.
