@@ -57,22 +57,26 @@ fun ScoreRoad(score: Int, passLine: Int, carColor: Color, modifier: Modifier = M
     val target = (score.coerceIn(0, 100) / 100f)
     val pos by animateFloatAsState(target, tween(600), label = "score")
     val car by animateColorAsState(carColor, tween(300), label = "car")
+    val asphalt = Road.Asphalt
+    val laneWhite = Road.LaneWhite
+    val laneYellow = Road.LaneYellow
+    val sheet = Road.Sheet
     Column(modifier.semantics { contentDescription = "점수 ${score}점, 합격선 ${passLine}점" }) {
         Canvas(Modifier.fillMaxWidth().height(height)) {
             val r = size.height / 2
-            drawRoundRect(Road.Ink, cornerRadius = CornerRadius(r, r))
+            drawRoundRect(asphalt, cornerRadius = CornerRadius(r, r))
             // 가장자리 실선과 가운데 점선
             val edge = size.height * 0.16f
-            drawLine(Road.LaneWhite.copy(alpha = 0.55f), Offset(r, edge), Offset(size.width - r, edge), strokeWidth = 3f)
-            drawLine(Road.LaneWhite.copy(alpha = 0.55f), Offset(r, size.height - edge), Offset(size.width - r, size.height - edge), strokeWidth = 3f)
+            drawLine(laneWhite.copy(alpha = 0.55f), Offset(r, edge), Offset(size.width - r, edge), strokeWidth = 3f)
+            drawLine(laneWhite.copy(alpha = 0.55f), Offset(r, size.height - edge), Offset(size.width - r, size.height - edge), strokeWidth = 3f)
             drawLine(
-                Road.LaneWhite.copy(alpha = 0.7f), Offset(r, size.height / 2), Offset(size.width - r, size.height / 2),
+                laneWhite.copy(alpha = 0.7f), Offset(r, size.height / 2), Offset(size.width - r, size.height / 2),
                 strokeWidth = 4f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(28f, 22f)),
             )
             // 합격선: 노란 이중 실선
             val passX = r + (size.width - 2 * r) * passLine / 100f
-            drawLine(Road.LaneYellow, Offset(passX - 5f, 4f), Offset(passX - 5f, size.height - 4f), strokeWidth = 5f)
-            drawLine(Road.LaneYellow, Offset(passX + 5f, 4f), Offset(passX + 5f, size.height - 4f), strokeWidth = 5f)
+            drawLine(laneYellow, Offset(passX - 5f, 4f), Offset(passX - 5f, size.height - 4f), strokeWidth = 5f)
+            drawLine(laneYellow, Offset(passX + 5f, 4f), Offset(passX + 5f, size.height - 4f), strokeWidth = 5f)
             // 차: 위에서 본 둥근 사각형
             val carW = size.height * 0.95f
             val carH = size.height * 0.56f
@@ -82,7 +86,7 @@ fun ScoreRoad(score: Int, passLine: Int, carColor: Color, modifier: Modifier = M
                 cornerRadius = CornerRadius(carH * 0.35f, carH * 0.35f),
             )
             drawRoundRect(
-                Road.Sheet.copy(alpha = 0.85f), topLeft = Offset(cx + carW * 0.12f, (size.height - carH) / 2 + carH * 0.18f),
+                sheet.copy(alpha = 0.85f), topLeft = Offset(cx + carW * 0.12f, (size.height - carH) / 2 + carH * 0.18f),
                 size = Size(carW * 0.2f, carH * 0.64f), cornerRadius = CornerRadius(6f, 6f),
             )
         }
@@ -102,17 +106,20 @@ fun ScoreRoad(score: Int, passLine: Int, carColor: Color, modifier: Modifier = M
 @Composable
 fun CourseRoad(fraction: Double, modifier: Modifier = Modifier) {
     val f by animateFloatAsState(fraction.toFloat().coerceIn(0f, 1f), tween(800), label = "course")
+    val asphalt = Road.Asphalt
+    val laneWhite = Road.LaneWhite
+    val laneYellow = Road.LaneYellow
     Canvas(modifier.fillMaxWidth().height(40.dp)) {
         val r = size.height / 2
-        drawRoundRect(Road.Ink, cornerRadius = CornerRadius(r, r))
+        drawRoundRect(asphalt, cornerRadius = CornerRadius(r, r))
         val y = size.height / 2
         val x0 = r
         val x1 = size.width - r
         val xf = x0 + (x1 - x0) * f
-        drawLine(Road.LaneWhite.copy(alpha = 0.6f), Offset(xf, y), Offset(x1, y), strokeWidth = 4f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(22f, 18f)))
-        drawLine(Road.LaneYellow, Offset(x0, y), Offset(xf, y), strokeWidth = 8f, cap = StrokeCap.Round)
-        drawCircle(Road.LaneYellow, radius = size.height * 0.32f, center = Offset(xf, y))
-        drawCircle(Road.Ink, radius = size.height * 0.14f, center = Offset(xf, y))
+        drawLine(laneWhite.copy(alpha = 0.6f), Offset(xf, y), Offset(x1, y), strokeWidth = 4f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(22f, 18f)))
+        drawLine(laneYellow, Offset(x0, y), Offset(xf, y), strokeWidth = 8f, cap = StrokeCap.Round)
+        drawCircle(laneYellow, radius = size.height * 0.32f, center = Offset(xf, y))
+        drawCircle(asphalt, radius = size.height * 0.14f, center = Offset(xf, y))
     }
 }
 
@@ -227,13 +234,14 @@ private fun PenBox(checked: Boolean) {
         contentAlignment = Alignment.Center,
     ) {
         if (checked) {
+            val mark = Road.Sheet
             Canvas(Modifier.size(22.dp)) {
                 val p = Path().apply {
                     moveTo(size.width * 0.08f, size.height * 0.55f)
                     lineTo(size.width * 0.4f, size.height * 0.85f)
                     lineTo(size.width * 0.95f, size.height * 0.15f)
                 }
-                drawPath(p, Road.Sheet, style = Stroke(width = 5f, cap = StrokeCap.Round))
+                drawPath(p, mark, style = Stroke(width = 5f, cap = StrokeCap.Round))
             }
         }
     }

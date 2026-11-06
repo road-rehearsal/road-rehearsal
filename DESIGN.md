@@ -18,6 +18,23 @@
 | RedPen | #C42B1C | 감점, 합격선 미달(채점 빨간 펜) |
 | SignGreen | #00703C | 합격선 통과(안내 표지판 초록) |
 
+## 밤 테마
+차가 밤 모드(시스템 UI 모드 night)로 바뀌면 같은 이름의 색을 밤 값으로 바꿉니다(`RoadPalette`, `DayRoad`/`NightRoad`). 바탕을 낮춰 눈부심을 줄이고, 표지판 색은 어두운 바탕에서 읽히도록 밝게 올렸습니다. 글자색(Ink)과 도로·어두운 판 바탕(Asphalt)을 나눠, 밤에 글자가 밝아져도 도로와 안내 판은 어둡게 남습니다.
+
+| 이름 | 낮 | 밤 |
+|---|---|---|
+| Paper | #F3F4F1 | #11151A |
+| Sheet | #FFFFFF | #1B2128 |
+| Ink | #1B2026 | #E8EBE6 |
+| Graphite | #5C646D | #9EA7B0 |
+| Rule | #DADDD8 | #333B44 |
+| Asphalt | #1B2026 | #07090B |
+| SignBlue | #0A4FA3 | #7FB2F0 |
+| LaneYellow | #F0B400 | #F0B400 |
+| RedPen | #C42B1C | #FF7A6B |
+| SignGreen | #00703C | #5DCB93 |
+| LaneWhite | #F7F7F2 | #E9EAE4 |
+
 ## 글자
 - 글꼴: Pretendard(OFL 1.1, `licenses/Pretendard-OFL.txt`) 5가지 굵기. 숫자는 자리 폭을 맞춥니다(`tnum`).
 - 차에서 팔 길이 거리에서 읽도록 본문 24sp, 보조 20sp, 작은 표시 18sp 이상입니다.

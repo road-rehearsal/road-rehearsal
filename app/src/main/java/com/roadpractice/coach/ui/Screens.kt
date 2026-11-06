@@ -174,7 +174,7 @@ fun DrivingScreen(ui: DrivingUi) {
                 CourseRoad(ui.fraction ?: 0.0)
             }
         }
-        Panel(Modifier.fillMaxWidth().heightIn(min = 180.dp), color = Road.Ink) {
+        Panel(Modifier.fillMaxWidth().heightIn(min = 180.dp), color = Road.Asphalt) {
             Box(Modifier.padding(horizontal = sp.l, vertical = sp.l), contentAlignment = Alignment.CenterStart) {
                 Text(
                     ui.guide ?: if (ui.course != null) "${ui.course}를 따라가요" else "차의 조작을 보고 있어요",
@@ -347,7 +347,7 @@ private fun TaskTitle(text: String, checked: Int) {
 fun StopFirst(title: String, line: String, modifier: Modifier = Modifier) {
     val sp = LocalSpacing.current
     Box(modifier.fillMaxSize().padding(sp.l), contentAlignment = Alignment.Center) {
-        Panel(color = Road.Ink) {
+        Panel(color = Road.Asphalt) {
             Column(Modifier.padding(sp.xl), verticalArrangement = Arrangement.spacedBy(sp.s)) {
                 Box(Modifier.fillMaxWidth().height(8.dp).background(Road.LaneYellow))
                 Text(title, style = MaterialTheme.typography.headlineMedium, color = Road.LaneWhite)
