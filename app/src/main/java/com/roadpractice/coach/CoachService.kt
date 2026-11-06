@@ -20,6 +20,8 @@ class CoachService : Service() {
     private var tts: TtsSpeaker? = null
     private var queue: SpeechQueue? = null
     private var session: CoachSession? = null
+    private var log: ExamLog? = null
+    private var runId: Long = NO_RUN
     private var lastLine = ""
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -30,9 +32,11 @@ class CoachService : Service() {
         if (tts == null) {
             tts = TtsSpeaker(applicationContext).also { queue = SpeechQueue(it) }
         }
+        if (log == null) log = ExamLog(applicationContext)
         session = CoachSession(mode, say = { queue?.say(it) })
+        runId = NO_RUN
         Log.i(TAG, "MODE $mode")
-        publish(Snapshot(mode, hub?.state, ExamResult(emptyList(), emptyList()), started = false, ended = false))
+        publish(Snapshot(mode, hub?.state, ExamResult(emptyList(), emptyList()), started = false, ended = false, runId = NO_RUN))
         if (hub == null) {
             hub = SignalHub(applicationContext) { onVehicleState(it) }.also { it.start() }
         }
@@ -48,13 +52,25 @@ class CoachService : Service() {
         val current = session ?: return
         current.onState(state).forEach { event ->
             when (event) {
-                is ExamEvent.Started -> Log.i(TAG, "EXAM_START mode=${current.mode}")
-                is ExamEvent.Deduction -> Log.i(TAG, "ITEM ${event.item.number} ${event.item.title} -${event.item.points} score=${current.result.score}")
-                is ExamEvent.Disqualified -> Log.i(TAG, "DISQUALIFY ${event.reason.title}")
-                is ExamEvent.Ended -> Log.i(TAG, "EXAM_END score=${current.result.score} passLine=${current.result.passedLine}")
+                is ExamEvent.Started -> {
+                    runId = log?.startRun(current.mode, System.currentTimeMillis()) ?: NO_RUN
+                    Log.i(TAG, "EXAM_START mode=${current.mode} run=$runId")
+                }
+                is ExamEvent.Deduction -> {
+                    if (runId != NO_RUN) log?.addCar(runId, event.item)
+                    Log.i(TAG, "ITEM ${event.item.number} ${event.item.title} -${event.item.points} score=${current.result.score}")
+                }
+                is ExamEvent.Disqualified -> {
+                    if (runId != NO_RUN) log?.addCarDisqualification(runId, event.reason)
+                    Log.i(TAG, "DISQUALIFY ${event.reason.title}")
+                }
+                is ExamEvent.Ended -> {
+                    if (runId != NO_RUN) log?.endRun(runId, System.currentTimeMillis())
+                    Log.i(TAG, "EXAM_END run=$runId score=${current.result.score} passLine=${current.result.passedLine}")
+                }
             }
         }
-        publish(Snapshot(current.mode, state, current.result, current.started, current.ended))
+        publish(Snapshot(current.mode, state, current.result, current.started, current.ended, runId))
     }
 
     private fun publish(snapshot: Snapshot) {
@@ -69,6 +85,8 @@ class CoachService : Service() {
         tts?.release()
         tts = null
         session = null
+        log?.close()
+        log = null
         latest = null
         listener?.invoke(null)
         super.onDestroy()
@@ -92,6 +110,7 @@ class CoachService : Service() {
         val result: ExamResult,
         val started: Boolean,
         val ended: Boolean,
+        val runId: Long,
     )
 
     companion object {
@@ -99,6 +118,7 @@ class CoachService : Service() {
         private const val CHANNEL_ID = "coach"
         private const val NOTIFICATION_ID = 1
         private const val EXTRA_MODE = "mode"
+        const val NO_RUN = -1L
 
         /** 화면이 다시 켜졌을 때 바로 보여 줄 마지막 상황. */
         @Volatile
