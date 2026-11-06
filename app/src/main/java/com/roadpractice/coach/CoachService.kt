@@ -23,6 +23,7 @@ class CoachService : Service() {
     private var log: ExamLog? = null
     private var runId: Long = NO_RUN
     private var lastLine = ""
+    private var lastFraction = -1.0
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -33,9 +34,11 @@ class CoachService : Service() {
             tts = TtsSpeaker(applicationContext).also { queue = SpeechQueue(it) }
         }
         if (log == null) log = ExamLog(applicationContext)
-        session = CoachSession(mode, say = { queue?.say(it) })
+        val course = runCatching { CourseLoader.find(applicationContext, intent?.getStringExtra(EXTRA_COURSE)) }
+            .onFailure { Log.w(TAG, "course load failed: ${it.message}") }.getOrNull()
+        session = CoachSession(mode, say = { queue?.say(it) }, course = course?.let { CourseTracker(it) })
         runId = NO_RUN
-        Log.i(TAG, "MODE $mode")
+        Log.i(TAG, "MODE $mode course=${course?.id ?: "-"}")
         publish(Snapshot(mode, hub?.state, ExamResult(emptyList(), emptyList()), started = false, ended = false, runId = NO_RUN))
         if (hub == null) {
             hub = SignalHub(applicationContext) { onVehicleState(it) }.also { it.start() }
@@ -53,7 +56,7 @@ class CoachService : Service() {
         current.onState(state).forEach { event ->
             when (event) {
                 is ExamEvent.Started -> {
-                    runId = log?.startRun(current.mode, System.currentTimeMillis()) ?: NO_RUN
+                    runId = log?.startRun(current.mode, System.currentTimeMillis(), current.course?.course?.id) ?: NO_RUN
                     Log.i(TAG, "EXAM_START mode=${current.mode} run=$runId")
                 }
                 is ExamEvent.Deduction -> {
@@ -64,13 +67,19 @@ class CoachService : Service() {
                     if (runId != NO_RUN) log?.addCarDisqualification(runId, event.reason)
                     Log.i(TAG, "DISQUALIFY ${event.reason.title}")
                 }
+                is ExamEvent.Guide -> {
+                    if (event.course == CourseEvent.Done && runId != NO_RUN) log?.markCourseDone(runId)
+                    Log.i(TAG, "GUIDE ${event.course} \"${event.text}\"")
+                }
                 is ExamEvent.Ended -> {
                     if (runId != NO_RUN) log?.endRun(runId, System.currentTimeMillis())
                     Log.i(TAG, "EXAM_END run=$runId score=${current.result.score} passLine=${current.result.passedLine}")
                 }
             }
         }
-        publish(Snapshot(current.mode, state, current.result, current.started, current.ended, runId))
+        val tracker = current.course
+        tracker?.let { if (it.fraction != lastFraction) { lastFraction = it.fraction; Log.i(TAG, "COURSE at=${it.alongM.toInt()}m ${"%.3f".format(it.fraction)}") } }
+        publish(Snapshot(current.mode, state, current.result, current.started, current.ended, runId, tracker?.course?.name, tracker?.fraction))
     }
 
     private fun publish(snapshot: Snapshot) {
@@ -111,6 +120,8 @@ class CoachService : Service() {
         val started: Boolean,
         val ended: Boolean,
         val runId: Long,
+        val courseName: String? = null,
+        val courseFraction: Double? = null,
     )
 
     companion object {
@@ -118,6 +129,7 @@ class CoachService : Service() {
         private const val CHANNEL_ID = "coach"
         private const val NOTIFICATION_ID = 1
         private const val EXTRA_MODE = "mode"
+        private const val EXTRA_COURSE = "course"
         const val NO_RUN = -1L
 
         /** 화면이 다시 켜졌을 때 바로 보여 줄 마지막 상황. */
@@ -128,8 +140,10 @@ class CoachService : Service() {
         /** 메인 스레드에서 호출됩니다. null은 서비스가 멈췄다는 뜻입니다. */
         var listener: ((Snapshot?) -> Unit)? = null
 
-        fun start(context: Context, mode: CoachMode) {
-            context.startForegroundService(Intent(context, CoachService::class.java).putExtra(EXTRA_MODE, mode.name))
+        fun start(context: Context, mode: CoachMode, courseId: String? = null) {
+            context.startForegroundService(
+                Intent(context, CoachService::class.java).putExtra(EXTRA_MODE, mode.name).putExtra(EXTRA_COURSE, courseId),
+            )
         }
 
         fun stop(context: Context) {

@@ -20,6 +20,10 @@ enum class ExamItem(val number: Int, val points: Int, val title: String, val sen
     SIGNAL_LATE(31, 7, "진로변경 30미터 전 미신호", "조금 더 일찍 켜 주세요"),
     SIGNAL_NOT_KEPT(32, 7, "진로변경 신호 미유지", "돌 때는 켜 두세요"),
     SIGNAL_NOT_CANCELED(33, 7, "진로변경 신호 미중지", "깜빡이를 꺼 주세요"),
+    // 37·38·43은 코스 지점에서 판정합니다(CourseTracker). 코스 없이 달리면 보지 않습니다.
+    SLOW_DOWN(37, 10, "서행 위반", "여기서는 천천히 가요"),
+    STOP_SIGN(38, 10, "일시정지 위반", "여기서는 완전히 멈춰요"),
+    CROSSWALK_STOP(43, 10, "횡단보도 직전 일시정지 위반", "횡단보도 앞에서는 멈춰요"),
     END_NO_PARKING_BRAKE(44, 5, "종료 주차 브레이크 미작동", "주차 브레이크를 걸어 주세요"),
     END_NOT_PARK(46, 5, "종료 기어 미작동", "내리기 전에 P로 바꿔요"),
 }
@@ -36,6 +40,9 @@ sealed interface ExamEvent {
     data class Disqualified(val reason: Disqualification, override val timeMs: Long) : ExamEvent
     data class Started(override val timeMs: Long) : ExamEvent
     data class Ended(override val timeMs: Long) : ExamEvent
+
+    /** 코스 안내 문장. 감점이 아니라 길 안내입니다. */
+    data class Guide(val text: String, val course: CourseEvent, override val timeMs: Long) : ExamEvent
 }
 
 /**

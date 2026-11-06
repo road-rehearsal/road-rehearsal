@@ -1,6 +1,10 @@
 package com.roadpractice.coach
 
 import android.Manifest
+import android.car.Car
+import android.car.drivingstate.CarUxRestrictionsManager
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -30,6 +34,15 @@ class MainActivity : AppCompatActivity() {
     private val passengerDq = LinkedHashSet<PassengerDisqualification>()
     private var sheetHeader: TextView? = null
 
+    /** AAOS 주행 규제. 서비스가 꺼져 있어도 주행 중인지 알 수 있게 씁니다. */
+    private var car: Car? = null
+    private var uxManager: CarUxRestrictionsManager? = null
+    private var restricted = false
+
+    /** 코스 선택: 0 = 코스 없음, 1 = 뽑기, 2부터 코스 목록. */
+    private var courseChoice = 1
+    private val courses: List<Course> by lazy { runCatching { CourseLoader.all(applicationContext) }.getOrDefault(emptyList()) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         log = ExamLog(applicationContext)
@@ -48,24 +61,29 @@ class MainActivity : AppCompatActivity() {
         }
         scroll = ScrollView(this).apply { addView(content) }
         setContentView(scroll)
-        requestPermissions(
-            arrayOf(
-                Manifest.permission.POST_NOTIFICATIONS,
-                "android.car.permission.CAR_SPEED",
-                "pleos.car.permission.FUSED_LOCATION",
-            ),
-            PERMISSION_REQUEST,
-        )
+        // 이미 받은 권한은 다시 묻지 않습니다. 권한 화면이 이 앱 작업에 끼면
+        // 홈 화면이 주행 중 표시 가능(distractionOptimized)하지 않은 앱으로 보고 가리는 것을 11/6에 확인했습니다(추정 원인).
+        val missing = arrayOf(
+            Manifest.permission.POST_NOTIFICATIONS,
+            "android.car.permission.CAR_SPEED",
+            "pleos.car.permission.FUSED_LOCATION",
+        ).filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        if (missing.isNotEmpty()) requestPermissions(missing.toTypedArray(), PERMISSION_REQUEST)
     }
 
     override fun onStart() {
         super.onStart()
+        connectUx()
         CoachService.listener = { render(it) }
         render(CoachService.latest)
     }
 
     override fun onStop() {
         CoachService.listener = null
+        runCatching { uxManager?.unregisterListener() }
+        runCatching { car?.disconnect() }
+        uxManager = null
+        car = null
         super.onStop()
     }
 
@@ -74,29 +92,55 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
+    private fun connectUx() {
+        runCatching {
+            val c = Car.createCar(this).also { car = it }
+            uxManager = (c.getCarManager(Car.CAR_UX_RESTRICTION_SERVICE) as CarUxRestrictionsManager).also { m ->
+                m.registerListener { onUx(it.isRequiresDistractionOptimization) }
+                restricted = m.currentCarUxRestrictions?.isRequiresDistractionOptimization == true
+            }
+        }
+    }
+
+    private fun onUx(value: Boolean) {
+        if (value == restricted) return
+        restricted = value
+        render(CoachService.latest)
+    }
+
     private fun render(s: CoachService.Snapshot?) {
-        val moving = s?.state?.isMoving == true
+        // 서비스가 꺼져 있으면 속도를 모르므로 주행 규제 값도 함께 봅니다.
+        val moving = restricted || s?.state?.isMoving == true
         when {
             s != null && s.started && !s.ended -> showDriving(s)
             s != null && s.ended && s.runId != CoachService.NO_RUN -> showReview(s.runId, moving)
             else -> {
                 val pending = if (s == null) log.latestUnreviewedEnded() else null
-                if (pending != null) showReview(pending.id, moving) else showHome(s)
+                if (pending != null) showReview(pending.id, moving) else showHome(s, moving)
             }
         }
     }
 
-    private fun showHome(s: CoachService.Snapshot?) {
+    private fun showHome(s: CoachService.Snapshot?, moving: Boolean = false) {
         reviewRunId = CoachService.NO_RUN
         review.removeAllViews()
         status.text = when (s) {
             null -> "연습용 앱입니다. 공식 채점이 아니며 합격을 보장하지 않습니다.\n" +
-                "면허 2년이 지난 동승자와 함께 타고, 연습 표지를 붙이고, 보험 범위를 확인해 주세요."
+                "면허 2년이 지난 동승자와 함께 타고, 연습 표지를 붙이고, 보험 범위를 확인해 주세요.\n" +
+                "코스 좌표: © OpenStreetMap contributors (ODbL). 공단 제공 자료가 아니며 '가상' 지점은 시연용입니다."
             else -> "${modeName(s.mode)} 준비됨. 기어를 P에서 바꾸면 시작합니다."
         }
         controls.removeAllViews()
-        controls.addView(button("연습 모드") { CoachService.start(this, CoachMode.PRACTICE) })
-        controls.addView(button("시험 모드") { CoachService.start(this, CoachMode.EXAM) })
+        if (moving) {
+            status.text = "주행 중에는 설정할 수 없습니다. 정차한 뒤 모드를 고르세요."
+            return
+        }
+        controls.addView(button("코스: ${courseLabel()}") {
+            courseChoice = (courseChoice + 1) % (courses.size + 2)
+            showHome(s, moving)
+        })
+        controls.addView(button("연습 모드") { CoachService.start(this, CoachMode.PRACTICE, pickCourse()) })
+        controls.addView(button("시험 모드") { CoachService.start(this, CoachMode.EXAM, pickCourse()) })
         if (s != null) controls.addView(button("끝내기") { CoachService.stop(this) })
         addHistory()
     }
@@ -105,7 +149,8 @@ class MainActivity : AppCompatActivity() {
         reviewRunId = CoachService.NO_RUN
         review.removeAllViews()
         controls.removeAllViews()
-        status.text = "${modeName(s.mode)} 주행 중\n끝나면 P로 바꾸고 운전석 문을 열어 주세요."
+        val course = s.courseName?.let { name -> "\n$name ${((s.courseFraction ?: 0.0) * 100).toInt()}%" } ?: ""
+        status.text = "${modeName(s.mode)} 주행 중$course\n끝나면 P로 바꾸고 운전석 문을 열어 주세요.$mockNote"
     }
 
     private fun showReview(runId: Long, moving: Boolean) {
@@ -120,7 +165,12 @@ class MainActivity : AppCompatActivity() {
         reviewMoving = moving
         controls.removeAllViews()
         review.removeAllViews()
-        status.text = "결과표 (연습용 기준, 공식 채점 아님)"
+        val run = log.run(runId)
+        val courseLine = when {
+            run?.course == null -> "코스 없이 달려 37·38·43번(서행·일시정지·횡단보도)은 보지 않았습니다."
+            else -> "${courses.firstOrNull { it.id == run.course }?.name ?: run.course} · ${if (run.courseDone) "완주" else "완주 못 함"}"
+        }
+        status.text = "결과표 (연습용 기준, 공식 채점 아님)\n$courseLine"
         sheetHeader = text(SECTION_TEXT_SP).also { review.addView(it) }
         if (moving) {
             review.addView(text(BODY_TEXT_SP, "주행 중에는 입력할 수 없습니다. 정차한 뒤 체크해 주세요."))
@@ -187,7 +237,8 @@ class MainActivity : AppCompatActivity() {
         review.addView(text(SECTION_TEXT_SP, "최근 기록"))
         runs.forEach { run ->
             val score = run.score?.let { "${it}점" } ?: if (run.endedAt == null) "끝나지 않음" else "체크 전"
-            review.addView(text(BODY_TEXT_SP, "${modeName(run.mode)} · $score"))
+            val course = run.course?.let { id -> " · " + (courses.firstOrNull { it.id == id }?.name ?: id) } ?: ""
+            review.addView(text(BODY_TEXT_SP, "${modeName(run.mode)}$course · $score"))
         }
         val often = log.carItemCounts().entries.sortedByDescending { it.value }.take(OFTEN_LIMIT)
         if (often.isNotEmpty()) {
@@ -195,6 +246,27 @@ class MainActivity : AppCompatActivity() {
             often.forEach { (item, count) -> review.addView(text(BODY_TEXT_SP, "${item.title} ${count}회")) }
         }
     }
+
+    private fun courseLabel(): String = when (courseChoice) {
+        0 -> "없음"
+        1 -> "뽑기(덜 해 본 코스 먼저)"
+        else -> courses.getOrNull(courseChoice - 2)?.name ?: "없음"
+    }
+
+    /** 뽑기는 완주 횟수가 가장 적은 코스 중에서 고릅니다. */
+    private fun pickCourse(): String? = when (courseChoice) {
+        0 -> null
+        1 -> {
+            val done = log.courseDoneCounts()
+            val least = courses.minOfOrNull { done[it.id] ?: 0 }
+            courses.filter { (done[it.id] ?: 0) == least }.randomOrNull()?.id
+        }
+        else -> courses.getOrNull(courseChoice - 2)?.id
+    }
+
+    /** 에뮬레이터에서는 위치를 adb로 넣으므로 모의 위치라고 밝힙니다. */
+    private val mockNote: String
+        get() = if (Build.HARDWARE.contains("ranchu") || Build.HARDWARE.contains("goldfish")) "\n(위치: 모의 위치)" else ""
 
     private fun modeName(mode: CoachMode) = if (mode == CoachMode.EXAM) "시험 모드" else "연습 모드"
 

@@ -26,10 +26,6 @@ enum class PassengerItem(val number: Int, val points: Int, val task: String, val
     LANE_CHANGE_MANY(34, 7, "진로 변경", "진로변경 과다"),
     LANE_CHANGE_FORBIDDEN(35, 7, "진로 변경", "진로변경 금지장소에서의 진로변경"),
     LANE_CHANGE_POOR(36, 7, "진로 변경", "진로변경 미숙"),
-    // 37·38·43은 코스 자료로 자동 판정할 예정(11/9 RouteTracker). 그 전까지는 동승자가 체크합니다.
-    SLOW_DOWN(37, 10, "서행·일시정지", "서행 위반"),
-    STOP_SIGN(38, 10, "서행·일시정지", "일시정지 위반"),
-    CROSSWALK_STOP(43, 10, "서행·일시정지", "횡단보도 직전 일시정지"),
     JUNCTION_ENTRY(39, 7, "교차로 통행 등", "교차로 진입 통행 위반"),
     SIGNAL_CAR_BLOCK(40, 7, "교차로 통행 등", "신호차 방해"),
     BOX_BLOCK(41, 7, "교차로 통행 등", "꼬리 물기"),

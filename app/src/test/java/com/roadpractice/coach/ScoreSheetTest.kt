@@ -8,8 +8,8 @@ import org.junit.Test
 class ScoreSheetTest {
     @Test
     fun passengerItemsMatchSchedule26() {
-        assertEquals(29, PassengerItem.entries.size)
-        // 차가 보는 16개, 동승자 29개(37·38·43 포함), 다루지 않는 17번 하나로 46개
+        assertEquals(26, PassengerItem.entries.size)
+        // 차가 보는 19개(코스 지점 37·38·43 포함), 동승자 26개, 다루지 않는 17번 하나로 46개
         val all = ExamItem.entries.map { it.number } + PassengerItem.entries.map { it.number } + 17
         assertEquals((1..46).toList(), all.sorted())
     }

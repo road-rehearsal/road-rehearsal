@@ -22,7 +22,13 @@ adb logcat -s RoadCoach:I
 - `ExamRules`, `CoachSession`: 차량 신호로 판정하는 16개 항목과 두 모드(시험은 침묵, 연습은 한 문장).
 - `ScoreSheet`: 차가 본 항목, 동승자 체크 29개, 실격 사유를 합친 결과표(100점에서 감점, 70점 합격선).
 - `ExamLog`: SQLite 기록. 감점이 생길 때마다 저장하고, 정차 후 체크와 제외 표시를 저장합니다. 위치나 개인정보는 저장하지 않습니다.
-- `MainActivity`: 모드 선택, 주행 중 안내, 종료 후 결과표와 동승자 체크, 최근 기록. 주행 중에는 입력을 받지 않습니다.
+- `CourseTracker`, `CourseLoader`: 코스 진행, 이탈, 지점(서행·일시정지·횡단보도·유턴) 판정과 안내. 지점은 코스 거리로 판정해 왕복 도로에서 중복되지 않습니다.
+- `MainActivity`: 코스 선택(뽑기는 덜 해 본 코스 먼저), 모드 선택, 주행 중 안내, 종료 후 결과표와 동승자 체크, 최근 기록. 주행 중에는 입력을 받지 않습니다.
+
+## 코스 자료
+`app/src/main/assets/courses.json`. 시험장이 공개한 코스 순서를 보고 OpenStreetMap 도로로 그린 연습용 좌표입니다. 공단이 준 자료가 아닙니다. 서행·일시정지 지점과 횡단보도 위치는 시연용 가상입니다.
+
+Map data © OpenStreetMap contributors, ODbL.
 
 ## 테스트 환경
 에뮬레이터와 Virtual Console(`adb forward tcp:8088 tcp:8088`)로 검증합니다. 실차에서는 시험하지 않았습니다.

@@ -19,12 +19,15 @@ class ExamLog(context: Context) : SQLiteOpenHelper(context, "exam_log.db", null,
         val score: Int?,
         val passedLine: Boolean?,
         val reviewed: Boolean,
+        val course: String?,
+        val courseDone: Boolean,
     )
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             "CREATE TABLE runs (id INTEGER PRIMARY KEY AUTOINCREMENT, mode TEXT NOT NULL, started_at INTEGER NOT NULL, " +
-                "ended_at INTEGER, score INTEGER, passed INTEGER, reviewed INTEGER NOT NULL DEFAULT 0)",
+                "ended_at INTEGER, score INTEGER, passed INTEGER, reviewed INTEGER NOT NULL DEFAULT 0, " +
+                "course TEXT, course_done INTEGER NOT NULL DEFAULT 0)",
         )
         db.execSQL(
             "CREATE TABLE lines (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER NOT NULL, kind TEXT NOT NULL, " +
@@ -32,13 +35,23 @@ class ExamLog(context: Context) : SQLiteOpenHelper(context, "exam_log.db", null,
         )
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE runs ADD COLUMN course TEXT")
+            db.execSQL("ALTER TABLE runs ADD COLUMN course_done INTEGER NOT NULL DEFAULT 0")
+        }
+    }
 
-    fun startRun(mode: CoachMode, now: Long): Long =
+    fun startRun(mode: CoachMode, now: Long, course: String? = null): Long =
         writableDatabase.insert("runs", null, ContentValues().apply {
             put("mode", mode.name)
             put("started_at", now)
+            put("course", course)
         })
+
+    fun markCourseDone(runId: Long) {
+        writableDatabase.update("runs", ContentValues().apply { put("course_done", 1) }, "id = ?", arrayOf(runId.toString()))
+    }
 
     fun addCar(runId: Long, item: ExamItem) = addLine(runId, KIND_CAR, item.name)
 
@@ -116,7 +129,7 @@ class ExamLog(context: Context) : SQLiteOpenHelper(context, "exam_log.db", null,
 
     fun recentRuns(limit: Int = RECENT_LIMIT): List<Run> =
         readableDatabase.rawQuery(
-            "SELECT id, mode, started_at, ended_at, score, passed, reviewed FROM runs ORDER BY id DESC LIMIT ?",
+            "SELECT id, mode, started_at, ended_at, score, passed, reviewed, course, course_done FROM runs ORDER BY id DESC LIMIT ?",
             arrayOf(limit.toString()),
         ).use { c ->
             buildList {
@@ -130,6 +143,8 @@ class ExamLog(context: Context) : SQLiteOpenHelper(context, "exam_log.db", null,
                             score = if (c.isNull(4)) null else c.getInt(4),
                             passedLine = if (c.isNull(5)) null else c.getInt(5) == 1,
                             reviewed = c.getInt(6) == 1,
+                            course = if (c.isNull(7)) null else c.getString(7),
+                            courseDone = c.getInt(8) == 1,
                         ),
                     )
                 }
@@ -137,6 +152,14 @@ class ExamLog(context: Context) : SQLiteOpenHelper(context, "exam_log.db", null,
         }
 
     /** 동승자 체크를 하지 않은 지난 기록 중 가장 최근 것. */
+    fun run(runId: Long): Run? = recentRuns(Int.MAX_VALUE).firstOrNull { it.id == runId }
+
+    /** 코스별로 완주한 횟수. 아직 안 해 본 코스를 먼저 고를 때 씁니다. */
+    fun courseDoneCounts(): Map<String, Int> =
+        readableDatabase.rawQuery("SELECT course, COUNT(*) FROM runs WHERE course IS NOT NULL AND course_done = 1 GROUP BY course", null).use { c ->
+            buildMap { while (c.moveToNext()) put(c.getString(0), c.getInt(1)) }
+        }
+
     fun latestUnreviewedEnded(): Run? = recentRuns(1).firstOrNull()?.takeIf { it.endedAt != null && !it.reviewed }
 
     /** 차가 본 항목의 횟수(제외 빼고). 자주 틀리는 항목을 보여 줄 때 씁니다. */
@@ -148,7 +171,7 @@ class ExamLog(context: Context) : SQLiteOpenHelper(context, "exam_log.db", null,
         }
 
     private companion object {
-        const val VERSION = 1
+        const val VERSION = 2
         const val KIND_CAR = "car"
         const val KIND_CAR_DQ = "car_dq"
         const val KIND_PASSENGER = "passenger"
