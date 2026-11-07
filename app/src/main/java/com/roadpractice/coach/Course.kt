@@ -231,6 +231,20 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
         }
         if (fraction >= t.doneFraction) {
             done = true
+            // 코스 끝까지 이어진 구간(예: 보호구역이 도착 근처까지)은 빠져나가기 전에 끝나므로 여기서 판정합니다(11/7 재생에서 찾음).
+            course.checkpoints.forEachIndexed { i, cp ->
+                val z = zones[i]
+                if (z != null && i !in judged) {
+                    judged += i
+                    val e = judge(cp, z[0], z[1])
+                    e?.let { out += it }
+                    if (cp.type.isZone) {
+                        val limit = cp.limitKmh ?: if (cp.type == CheckpointType.SCHOOL) t.schoolKmh else t.slowKmh
+                        results += PointResult(cp.type, cp.name, e == null || (e as? CourseEvent.Passed)?.ok == true, "최고 ${z[1].toInt()}km/h (제한 ${limit.toInt()})")
+                    }
+                }
+            }
+            zones.clear()
             out += CourseEvent.Done
         }
         return out

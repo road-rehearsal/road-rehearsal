@@ -76,6 +76,20 @@ class CourseGuideTest {
     }
 
     @Test
+    fun zoneRunningToCourseEndIsJudgedAtDone() {
+        // 보호구역이 코스 끝까지 이어져도(빠져나가기 전에 완주) 판정합니다.
+        val lat2 = DoubleArray(20) { k -> 37.0 + step * k }
+        val lng2 = DoubleArray(20) { 127.0 }
+        val c = Course("e", "E", lat2, lng2, emptyList())
+        val school = Checkpoint(CheckpointType.SCHOOL, "어린이보호구역", c.lengthM - 50, 80.0, 30f)
+        val tr = CourseTracker(c.copy(checkpoints = listOf(school)))
+        val events = (0 until 20).flatMap { k -> tr.onState(at(lat2[k], lng2[k], 40f)) }
+        assertEquals(1, events.count { it is CourseEvent.ZoneOver })
+        assertTrue(events.last() is CourseEvent.Done)
+        assertEquals(false, tr.pointResults.single().ok)
+    }
+
+    @Test
     fun activeZoneGivesLimitInside() {
         val zone = Checkpoint(CheckpointType.SCHOOL, "어린이보호구역", 100.0, 40.0)
         val tr = CourseTracker(Course("z", "Z", lat, lng, listOf(zone)))
