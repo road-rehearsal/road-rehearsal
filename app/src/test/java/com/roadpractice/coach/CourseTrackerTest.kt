@@ -169,7 +169,7 @@ class CourseTrackerTest {
     }
 
     @Test
-    fun sessionScoresCourseAndSpeaksByMode() {
+    fun crosswalkIsGuidanceOnlyAndSpeaksByMode() {
         fun run(mode: CoachMode): Pair<CoachSession, List<String>> {
             val said = ArrayList<String>()
             val session = CoachSession(mode, say = { said += it }, course = CourseTracker(course(crosswalk)))
@@ -180,13 +180,14 @@ class CourseTrackerTest {
             for (k in 1..12) session.onState(at(k, 20f).copy(gear = Gear.DRIVE))
             return session to said
         }
+        // 11/7부터 횡단보도는 감점하지 않습니다(43번은 동승자 체크). 연습 모드에서만 "보행자 확인" 안내.
         val (exam, examSaid) = run(CoachMode.EXAM)
-        assertEquals(listOf(ExamItem.CROSSWALK_STOP), exam.result.deductions.filter { it == ExamItem.CROSSWALK_STOP })
+        assertTrue(exam.result.deductions.isEmpty() || exam.result.deductions.none { it.number == 43 })
         assertTrue(examSaid.none { it == CheckpointType.CROSSWALK.ahead })
         val (practice, practiceSaid) = run(CoachMode.PRACTICE)
-        assertTrue(ExamItem.CROSSWALK_STOP in practice.result.deductions)
+        assertTrue(practice.result.deductions.none { it.number == 43 })
         assertTrue(CheckpointType.CROSSWALK.ahead in practiceSaid)
-        assertTrue(ExamItem.CROSSWALK_STOP.sentence in practiceSaid)
+        assertEquals(null, practice.course!!.pointResults.single { it.type == CheckpointType.CROSSWALK }.ok)
     }
 
     @Test

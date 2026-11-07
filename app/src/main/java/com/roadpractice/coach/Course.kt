@@ -9,7 +9,8 @@ import kotlin.math.sqrt
 enum class CheckpointType(val item: ExamItem?, val ahead: String) {
     SLOW(ExamItem.SLOW_DOWN, "앞에 서행 구간이 있어요"),
     STOP(ExamItem.STOP_SIGN, "앞에서 완전히 멈춰야 해요"),
-    CROSSWALK(ExamItem.CROSSWALK_STOP, "앞 횡단보도에서 멈춰요"),
+    /** 횡단보도: 안내만 하고 감점하지 않습니다. 43번은 동승자 체크(11/7 사용자 결정). 지날 때 속도는 결과표에 참고로 남깁니다. */
+    CROSSWALK(null, "앞에 횡단보도가 있어요. 보행자를 확인해요"),
     UTURN(null, "유턴해요"),
     LEFT(null, "좌회전해요"),
     RIGHT(null, "우회전해요"),
@@ -88,6 +89,13 @@ data class CourseThresholds(
     val startRadiusM: Double = 100.0,
     /** 한 번에 이보다 많이 건너뛰면 위치 오류로 보고 그 사이 지점은 판정하지 않습니다. */
     val maxJumpM: Double = 150.0,
+    /**
+     * 회전 지점 근처에서 코스 선과 이만큼 떨어지면 회전을 놓친 것으로 봅니다(2번 연속).
+     * 일반 이탈(60m)보다 작게 둡니다. 11/7 재생에서 50m 이탈은 일반 기준으로 못 잡았습니다(제안값).
+     */
+    val missTurnM: Double = 30.0,
+    /** 회전 지점 앞뒤 이 거리 안에 있을 때만 회전 놓침을 봅니다. */
+    val missTurnWindowM: Double = 40.0,
 )
 
 sealed interface CourseEvent {
@@ -97,6 +105,9 @@ sealed interface CourseEvent {
 
     /** 제한속도·보호구역을 넘었음(구간을 빠져나갈 때 한 번). */
     data class ZoneOver(val checkpoint: Checkpoint, val maxKmh: Float, val limitKmh: Float) : CourseEvent
+
+    /** 돌아야 할 곳을 지나쳤음(회전 지점 근처에서 코스 선과 멀어짐). */
+    data class MissedTurn(val checkpoint: Checkpoint) : CourseEvent
     data class Progress(val fraction: Double) : CourseEvent
     data object OffRoute : CourseEvent
     data object BackOnRoute : CourseEvent
@@ -105,6 +116,22 @@ sealed interface CourseEvent {
     /** 출발점에서 멀리 떨어져 아직 코스를 따라가지 않습니다(한 번만 알림). */
     data object NotAtStart : CourseEvent
 }
+
+/** 코스 지점 하나의 결과. 결과표의 "코스 지점" 줄에 씁니다. ok가 null이면 판정 없이 안내만 한 지점입니다. */
+data class PointResult(val type: CheckpointType, val name: String, val ok: Boolean?, val detail: String) {
+    /** 저장용 한 줄(구분자 |). 이름·설명에 |가 없게 만듭니다. */
+    fun encode(): String = listOf(type.name, name, ok?.let { if (it) "1" else "0" } ?: "-", detail).joinToString("|") { it.replace("|", "/") }
+
+    companion object {
+        fun decode(s: String): PointResult? = runCatching {
+            val p = s.split("|")
+            PointResult(CheckpointType.valueOf(p[0]), p[1], when (p[2]) { "1" -> true; "0" -> false; else -> null }, p.getOrElse(3) { "" })
+        }.getOrNull()
+    }
+}
+
+/** 화면에 띄울 다음 회전. */
+data class NextTurn(val type: CheckpointType, val remainingM: Int)
 
 /** 회전 안내 문장. */
 fun turnSentence(type: CheckpointType, distanceM: Int, nearM: Int): String =
@@ -122,6 +149,9 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
     private val announced = HashSet<Int>()
     private val turnLevels = HashMap<Int, Int>()
     private val judged = HashSet<Int>()
+    private val turnHeard = HashMap<Int, ArrayList<Int>>()
+    private val results = ArrayList<PointResult>()
+    private var missCount = 0
 
     /** 지점별 구간 안 최저·최고 속도. 구간이 겹쳐도(제한속도 구간 안 횡단보도) 따로 셉니다. */
     private val zones = HashMap<Int, FloatArray>()
@@ -164,6 +194,7 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
         // 출발점 반경(100m) 안에 들어왔어도 아직 코스 선에 닿지 않았으면 이탈로 보지 않습니다
         // (11/7 실제 기록 재생: 옆길에서 다가오며 "코스를 벗어났어요"가 잘못 나옴).
         if (bestD > t.offRouteM && !locked) return out
+        if (checkMissedTurn(bestD, out)) return out
         if (bestD > t.offRouteM) {
             offCount++
             if (offCount >= t.offRouteCount && !off) {
@@ -172,6 +203,8 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
             }
             return out
         }
+        // 벗어난 뒤에는 코스 선 30m 안으로 들어와야 돌아온 것으로 봅니다(60m로 보면 옆길에서 너무 일찍 "돌아왔어요").
+        if (off && bestD > t.missTurnM) return out
         if (off) out += CourseEvent.BackOnRoute
         off = false
         offCount = 0
@@ -203,10 +236,75 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
         return out
     }
 
+    /**
+     * 회전 놓침: 아직 지나지 않은 회전 지점 앞뒤(40m) 안에서 코스 선과 30m 넘게 2번 연속 떨어지면
+     * 그 회전을 놓친 것으로 봅니다. 놓친 뒤에는 일반 이탈 상태로 두어 돌아오면 "코스로 돌아왔어요"를 냅니다.
+     * @return 이번 위치를 여기서 다 처리했으면 true
+     */
+    private fun checkMissedTurn(bestD: Double, out: MutableList<CourseEvent>): Boolean {
+        if (bestD <= t.missTurnM) {
+            missCount = 0
+            return false
+        }
+        val i = course.checkpoints.indices.firstOrNull { j ->
+            val cp = course.checkpoints[j]
+            cp.type.isTurn && j !in judged && kotlin.math.abs(cp.atM - alongM) <= t.missTurnWindowM
+        } ?: return false
+        missCount++
+        if (missCount < t.offRouteCount) return true
+        val cp = course.checkpoints[i]
+        judged += i
+        missCount = 0
+        off = true
+        results += PointResult(cp.type, cp.name, false, "지나침")
+        out += CourseEvent.MissedTurn(cp)
+        return true
+    }
+
+    /** 지금 보여 줄 다음 회전(안내 거리 300m 안). 없으면 null. */
+    fun nextTurn(): NextTurn? {
+        if (!onCourse || done) return null
+        val cp = course.checkpoints.withIndex()
+            .filter { (i, c) -> c.type.isTurn && i !in judged && c.atM > alongM }
+            .minByOrNull { it.value.atM }?.value ?: return null
+        val remaining = (cp.atM - alongM).toInt()
+        return if (remaining <= (t.turnNoticeM.maxOrNull() ?: 300)) NextTurn(cp.type, remaining) else null
+    }
+
+    /**
+     * 직진 구간 안내(11/7 사용자 요청): 300m 안에 회전이 없으면, 다음 회전까지(없으면 도착까지) 남은 거리와 그 회전 종류.
+     * 코스를 벗어났거나 아직 코스에 닿지 않았으면 null(그때는 안내 문장을 보여 줌).
+     */
+    fun straightAhead(): Pair<Int, CheckpointType?>? {
+        if (!onCourse || !locked || done || off) return null
+        if (nextTurn() != null) return null
+        val cp = course.checkpoints.withIndex()
+            .filter { (i, c) -> c.type.isTurn && i !in judged && c.atM > alongM }
+            .minByOrNull { it.value.atM }?.value
+        val to = (cp?.atM ?: course.lengthM) - alongM
+        return to.toInt().coerceAtLeast(0) to cp?.type
+    }
+
+    /** 지금 들어와 있는 제한속도·보호구역 구간과 그 제한속도. */
+    fun activeZoneLimit(): Pair<Checkpoint, Float>? {
+        if (!onCourse || done) return null
+        val cp = course.checkpoints.firstOrNull {
+            (it.type == CheckpointType.SPEED || it.type == CheckpointType.SCHOOL) && alongM in (it.atM - it.radiusM)..(it.atM + it.radiusM)
+        } ?: return null
+        val limit = cp.limitKmh ?: if (cp.type == CheckpointType.SCHOOL) t.schoolKmh else return null
+        return cp to limit
+    }
+
     private fun checkpoints(prevAlong: Double, kmh: Float, out: MutableList<CourseEvent>) {
         course.checkpoints.forEachIndexed { i, cp ->
             if (cp.type.isTurn) {
                 announceTurn(i, cp, out)
+                // 회전 지점을 10m 넘게 지나면 회전한 것으로 기록합니다(놓쳤으면 checkMissedTurn에서 먼저 기록됨).
+                if (i !in judged && alongM > cp.atM + TURN_DONE_M) {
+                    judged += i
+                    val heard = turnHeard[i].orEmpty()
+                    results += PointResult(cp.type, cp.name, true, if (heard.isEmpty()) "안내 없음" else "안내 " + heard.joinToString("·") { "${it}m" })
+                }
                 return@forEachIndexed
             }
             val start = cp.atM - cp.radiusM
@@ -228,10 +326,25 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
             if (z != null && alongM > end) {
                 judged += i
                 zones.remove(i)
-                judge(cp, z[0], z[1])?.let { out += it }
+                val e = judge(cp, z[0], z[1])
+                e?.let { out += it }
+                results += when (cp.type) {
+                    // 횡단보도는 판정하지 않고(ok=null) 참고로 속도만 남깁니다. 43번은 동승자 체크.
+                    CheckpointType.CROSSWALK ->
+                        PointResult(cp.type, cp.name, null, if (z[0] < t.stopKmh) "멈춤 (참고)" else "최저 ${z[0].toInt()}km/h (참고)")
+                    CheckpointType.STOP ->
+                        PointResult(cp.type, cp.name, (e as? CourseEvent.Passed)?.ok, if (z[0] < t.stopKmh) "멈춤" else "최저 ${z[0].toInt()}km/h")
+                    else -> {
+                        val limit = cp.limitKmh ?: if (cp.type == CheckpointType.SCHOOL) t.schoolKmh else t.slowKmh
+                        PointResult(cp.type, cp.name, e == null || (e as? CourseEvent.Passed)?.ok == true, "최고 ${z[1].toInt()}km/h (제한 ${limit.toInt()})")
+                    }
+                }
             }
         }
     }
+
+    /** 지금까지 지난 코스 지점의 결과. 결과표에 씁니다. */
+    val pointResults: List<PointResult> get() = results.toList()
 
     private fun judge(cp: Checkpoint, min: Float, max: Float): CourseEvent? = when (cp.type) {
         CheckpointType.SLOW -> CourseEvent.Passed(cp, max <= (cp.limitKmh ?: t.slowKmh), max)
@@ -260,6 +373,11 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
         val last = turnLevels[i]
         if (last != null && last <= level) return
         turnLevels[i] = level
+        turnHeard.getOrPut(i) { ArrayList() } += level
         out += CourseEvent.Ahead(cp, level)
+    }
+
+    private companion object {
+        const val TURN_DONE_M = 10.0
     }
 }

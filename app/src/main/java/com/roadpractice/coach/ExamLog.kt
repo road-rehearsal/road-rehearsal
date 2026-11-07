@@ -74,6 +74,24 @@ class ExamLog(context: Context) : SQLiteOpenHelper(context, "exam_log.db", null,
 
     fun addCarDisqualification(runId: Long, reason: Disqualification) = addLine(runId, KIND_CAR_DQ, reason.name)
 
+    /** 코스 지점 결과(회전·횡단보도·구간). 위치는 저장하지 않고 이름·판정·설명만 둡니다. */
+    fun addCoursePoints(runId: Long, points: List<PointResult>) = points.forEach { addLine(runId, KIND_COURSE_POINT, it.encode()) }
+
+    fun coursePoints(runId: Long): List<PointResult> =
+        readableDatabase.rawQuery("SELECT code FROM lines WHERE run_id = ? AND kind = ? ORDER BY id", arrayOf(runId.toString(), KIND_COURSE_POINT)).use { c ->
+            buildList { while (c.moveToNext()) PointResult.decode(c.getString(0))?.let { add(it) } }
+        }
+
+    /** 같은 코스로 이 기록 바로 전에 마친(체크까지 한) 기록. "지난번과 비교"에 씁니다. */
+    fun previousOnCourse(runId: Long, course: String): Run? =
+        recentRuns(Int.MAX_VALUE).firstOrNull { it.id < runId && it.course == course && it.reviewed && !it.interrupted }
+
+    /** 차가 본 감점 개수(제외 빼고). */
+    fun carDeductionCount(runId: Long): Int =
+        readableDatabase.rawQuery("SELECT COUNT(*) FROM lines WHERE run_id = ? AND kind = ? AND excluded = 0", arrayOf(runId.toString(), KIND_CAR)).use { c ->
+            if (c.moveToFirst()) c.getInt(0) else 0
+        }
+
     private fun addLine(runId: Long, kind: String, code: String) {
         writableDatabase.insert("lines", null, ContentValues().apply {
             put("run_id", runId)
@@ -194,6 +212,7 @@ class ExamLog(context: Context) : SQLiteOpenHelper(context, "exam_log.db", null,
         const val KIND_CAR_DQ = "car_dq"
         const val KIND_PASSENGER = "passenger"
         const val KIND_PASSENGER_DQ = "passenger_dq"
+        const val KIND_COURSE_POINT = "course_point"
         const val RECENT_LIMIT = 5
     }
 }

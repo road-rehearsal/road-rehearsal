@@ -30,6 +30,8 @@ enum class PassengerItem(val number: Int, val points: Int, val task: String, val
     SIGNAL_CAR_BLOCK(40, 7, "교차로 통행 등", "신호차 방해"),
     BOX_BLOCK(41, 7, "교차로 통행 등", "꼬리 물기"),
     NO_YIELD(42, 7, "교차로 통행 등", "신호 없는 교차로 양보 불이행"),
+    /** 11/7부터 동승자 체크: 앱은 신호 색과 보행자를 볼 수 없어 녹색 직진 통과도 감점되는 문제가 있었음. */
+    CROSSWALK_STOP(43, 10, "교차로 통행 등", "횡단보도 직전 일시정지 위반"),
     ENGINE_LEFT_ON(45, 5, "주행 종료", "종료 엔진 미정지"),
 }
 

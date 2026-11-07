@@ -7,6 +7,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -123,6 +124,88 @@ fun CourseRoad(fraction: Double, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * 회전 화살표. 도로 안내 표지처럼 굵은 흰 화살표를 그립니다.
+ * @param kind "LEFT", "RIGHT", "UTURN"
+ */
+@Composable
+fun TurnArrow(kind: String, modifier: Modifier = Modifier, color: Color = Road.LaneWhite) {
+    val label = when (kind) { "LEFT" -> "좌회전"; "RIGHT" -> "우회전"; "STRAIGHT" -> "직진"; else -> "유턴" }
+    Canvas(modifier.size(150.dp).semantics { contentDescription = "$label 화살표" }) {
+        val w = size.width
+        val h = size.height
+        val stroke = w * 0.16f
+        val mirror = kind == "LEFT"
+        fun x(v: Float) = if (mirror) w - v else v
+        val path = Path()
+        val head = Path()
+        if (kind == "STRAIGHT") {
+            // 아래에서 위로 곧게 올라가는 화살표
+            path.moveTo(w * 0.5f, h * 0.94f)
+            path.lineTo(w * 0.5f, h * 0.34f)
+            head.moveTo(w * 0.26f, h * 0.38f)
+            head.lineTo(w * 0.5f, h * 0.06f)
+            head.lineTo(w * 0.74f, h * 0.38f)
+            head.close()
+        } else if (kind == "UTURN") {
+            // 위로 올라가 반원을 돌아 아래로 내려오는 화살표
+            path.moveTo(x(w * 0.70f), h * 0.92f)
+            path.lineTo(x(w * 0.70f), h * 0.42f)
+            path.arcTo(androidx.compose.ui.geometry.Rect(x(w * 0.70f) - w * 0.40f, h * 0.10f, x(w * 0.70f), h * 0.58f), 0f, -180f, false)
+            path.lineTo(x(w * 0.30f), h * 0.62f)
+            head.moveTo(x(w * 0.30f) - w * 0.17f, h * 0.58f)
+            head.lineTo(x(w * 0.30f) + w * 0.17f, h * 0.58f)
+            head.lineTo(x(w * 0.30f), h * 0.86f)
+            head.close()
+        } else {
+            // 아래에서 올라와 오른쪽(왼쪽은 거울)으로 꺾이는 화살표
+            path.moveTo(x(w * 0.32f), h * 0.94f)
+            path.lineTo(x(w * 0.32f), h * 0.46f)
+            path.quadraticTo(x(w * 0.32f), h * 0.30f, x(w * 0.48f), h * 0.30f)
+            path.lineTo(x(w * 0.66f), h * 0.30f)
+            head.moveTo(x(w * 0.62f), h * 0.10f)
+            head.lineTo(x(w * 0.94f), h * 0.30f)
+            head.lineTo(x(w * 0.62f), h * 0.50f)
+            head.close()
+        }
+        drawPath(path, color, style = Stroke(width = stroke, cap = StrokeCap.Butt, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+        drawPath(head, color)
+    }
+}
+
+/** 제한속도 표지 단계: 0 지킴, 1 넘음(경고), 2 실격 기준을 넘음. */
+fun speedLevel(speedKmh: Float?, limitKmh: Int, school: Boolean): Int {
+    val v = speedKmh ?: return 0
+    return when {
+        v <= limitKmh -> 0
+        // 별표 26 실격: 보호구역은 최고 속도 초과, 그 밖은 지정 최고 속도 10km/h 초과
+        school || v > limitKmh + 10 -> 2
+        else -> 1
+    }
+}
+
+/**
+ * 제한속도 표지(빨간 테 원 안 숫자). 넘으면 노란 바탕(경고), 실격 기준을 넘으면 빨간 바탕(11/7 사용자 결정).
+ * 보호구역은 넘는 순간 실격 기준이라 바로 빨갛게 됩니다. 보호구역이면 아래에 "어린이보호구역"을 붙입니다.
+ */
+@Composable
+fun SpeedLimitSign(limitKmh: Int, level: Int, school: Boolean, modifier: Modifier = Modifier) {
+    val bg by animateColorAsState(
+        when (level) { 2 -> Road.RedPen; 1 -> Road.LaneYellow; else -> Road.Sheet }, tween(250), label = "limit",
+    )
+    val text = if (level == 2) Road.Sheet else Road.Ink
+    val what = when (level) { 2 -> ", 실격 기준을 넘었어요"; 1 -> ", 넘었어요"; else -> "" }
+    Column(modifier.semantics { contentDescription = "제한속도 ${limitKmh}킬로미터$what" }, horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier.size(120.dp).clip(CircleShape).background(bg).border(14.dp, Road.RedPen, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("$limitKmh", style = MaterialTheme.typography.displayMedium, color = text)
+        }
+        if (school) Text("어린이보호구역", style = MaterialTheme.typography.labelLarge, color = Road.Ink, modifier = Modifier.padding(top = 6.dp))
+    }
+}
+
 /** 작은 표지. 상태나 출처를 붙일 때 씁니다. */
 @Composable
 fun Tag(text: String, color: Color = Road.Graphite, filled: Boolean = false, large: Boolean = false) {
@@ -181,7 +264,8 @@ fun ModeTile(title: String, line: String, accent: Color, onClick: () -> Unit, mo
 /** 하나만 고르는 줄(코스 선택). */
 @Composable
 fun ChoiceRow(options: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    // 내 기록 코스 이름이 길어 창을 넘을 수 있어 옆으로 밀 수 있게 둡니다.
+    Row(modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         options.forEachIndexed { i, label ->
             val on = i == selected
             Surface(

@@ -22,10 +22,15 @@ Jetpack Compose와 Material 3로 만들었습니다. 디자인 기준은 [DESIGN
 ## 구조
 - `SignalHub`: 차량 신호와 위치를 `VehicleState` 하나로 모읍니다. 차량 제어는 호출하지 않습니다.
 - `CoachService`: 포그라운드 서비스. 내비가 앞에 있어도 신호 수신이 멈추지 않게 합니다.
-- `ExamRules`, `CoachSession`: 차량 신호로 판정하는 16개 항목과 두 모드(시험은 침묵, 연습은 한 문장).
-- `ScoreSheet`: 차가 본 항목, 동승자 체크 29개, 실격 사유를 합친 결과표(100점에서 감점, 70점 합격선).
+- `ExamRules`, `CoachSession`: 차량 신호로 판정하는 17개 항목(5번 미출발 포함)과 두 모드(시험은 침묵, 연습은 한 문장).
+- `ScoreSheet`: 차가 본 항목, 동승자 체크 26개(43번 포함), 실격 사유를 합친 결과표(100점에서 감점, 70점 합격선).
 - `ExamLog`: SQLite 기록. 감점이 생길 때마다 저장하고, 정차 후 체크와 제외 표시를 저장합니다. 위치나 개인정보는 저장하지 않습니다.
 - `CourseTracker`, `CourseLoader`: 코스 진행, 이탈, 지점(서행·일시정지·횡단보도·유턴) 판정과 안내. 지점은 코스 거리로 판정해 왕복 도로에서 중복되지 않습니다.
+  - 길 안내: 좌·우회전·유턴을 300·100·30m 전에 음성으로 말하고, 화면에 화살표와 남은 거리를 띄웁니다(두 모드 모두). 돌아야 할 곳을 지나치면(회전 지점 근처에서 코스 선과 30m 넘게 떨어지면) "지점을 지났어요"라고 알립니다.
+  - 구간: 제한속도 구간과 어린이보호구역에서 제한속도 표지를 띄우고, 보호구역 제한속도 초과·지정 제한속도 10km/h 초과는 실격으로 기록합니다(코스 자료에 구간이 있을 때만. 차량 신호의 제한속도는 에뮬레이터에서 0만 옵니다).
+  - 5번 "20초 내 미출발": 기어를 P에서 뺀 뒤 20초 안에 움직이지 않으면 감점합니다(처음 출발만).
+  - 결과표에 코스 지점별 결과(회전 안내, 횡단보도를 지날 때 속도(참고), 구간 최고 속도)와 같은 코스 지난번과의 감점 비교를 보여 줍니다.
+  - 횡단보도: 연습 모드에서 "보행자를 확인해요" 안내만 하고 감점하지 않습니다. 43번(횡단보도 직전 일시정지)은 정차 후 동승자 체크입니다. 앱은 신호 색과 보행자를 볼 수 없기 때문입니다.
 - 내비 등 다른 화면이 앞에 있어도 `CoachService`가 판정을 계속합니다. 끝나면 음성과 알림으로 알리고, 알림이나 하단 바 아이콘으로 결과표에 돌아옵니다. 주행 중 앱이 멈추면 다음 실행 때 그때까지의 기록을 "중간에 멈춤"으로 보여 줍니다.
 - `MainActivity`: 코스 선택(뽑기는 덜 해 본 코스 먼저), 모드 선택, 주행 중 안내, 종료 후 결과표와 동승자 체크, 최근 기록. 주행 중에는 입력을 받지 않습니다.
 
@@ -34,5 +39,28 @@ Jetpack Compose와 Material 3로 만들었습니다. 디자인 기준은 [DESIGN
 
 Map data © OpenStreetMap contributors, ODbL.
 
+### 내가 기록한 코스
+폰으로 기록한 길로 만든 코스는 저장소에 넣지 않고(사용자 위치) 기기 안 `files/courses_local.json`에 둡니다. 형식은 `courses.json`과 같고, 지점에 `LEFT`·`RIGHT`·`SPEED`·`SCHOOL`과 `limit`(km/h)을 쓸 수 있습니다. 코스 고르기 화면에 "내 기록 ○km"로 따로 나옵니다.
+
+```bash
+adb push courses_local.json /data/local/tmp/
+adb shell "run-as com.roadpractice.coach --user 10 cp /data/local/tmp/courses_local.json files/"
+```
+
+## 시연용 재생 (디버그 빌드만)
+에뮬레이터는 차량 속도를 밖에서 넣을 수 없어(`inject-vhal-event`는 user 빌드에서 막힘), 폰으로 기록한 CSV(시각·위도·경도·속도)를 앱이 차량 신호 대신 넣는 재생 모드가 있습니다. 화면에 **"시연용 재생"**이라고 표시하며 release 빌드에서는 꺼집니다.
+
+```bash
+adb push drive.csv /data/local/tmp/ && adb shell "run-as com.roadpractice.coach --user 10 cp /data/local/tmp/drive.csv files/"
+adb shell am start --user 10 -n com.roadpractice.coach/.MainActivity --es replay drive.csv --es course <코스 id> --es mode EXAM --ei replaySpeed 4
+```
+
+## 시험
+- `./gradlew testDebugUnitTest`: 판정·코스·결과표 단위 시험(83개).
+- 실제 주행 기록으로 돌려 보기: `./gradlew testDebugUnitTest -PreplayDir=<기록 폴더>`. 폴더에 기록 CSV와 코스 JSON이 없으면 이 시험은 건너뜁니다.
+
+## release 빌드
+`keystore.properties`(storeFile, storePassword, keyAlias, keyPassword)와 키 파일을 저장소 밖 또는 git 제외로 두고 `./gradlew assembleRelease`. 없으면 서명 없이 빌드됩니다.
+
 ## 테스트 환경
-에뮬레이터와 Virtual Console(`adb forward tcp:8088 tcp:8088`)로 검증합니다. 실차에서는 시험하지 않았습니다.
+에뮬레이터와 Virtual Console(`adb forward tcp:8088 tcp:8088`)로 검증합니다. 실제 주행 기록은 폰으로 모은 뒤 위 재생으로 확인했습니다. 실차에 앱을 설치해 시험하지는 않았습니다.

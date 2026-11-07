@@ -37,6 +37,7 @@ import com.roadpractice.coach.Disqualification
 import com.roadpractice.coach.ExamItem
 import com.roadpractice.coach.PassengerDisqualification
 import com.roadpractice.coach.PassengerItem
+import com.roadpractice.coach.PointResult
 import com.roadpractice.coach.ScoreSheet
 
 /** 창 폭이 넓으면(840dp 이상) 두 판으로, 좁으면 한 줄로 놓습니다. 앱 창 크기 기준입니다. */
@@ -189,7 +190,28 @@ fun ReadyScreen(ui: ReadyUi, onCancel: () -> Unit) {
 
 // ---------------------------------------------------------------- 주행 중
 
-data class DrivingUi(val mode: CoachMode, val course: String?, val fraction: Double?, val guide: String?, val mockLocation: Boolean)
+data class DrivingUi(
+    val mode: CoachMode,
+    val course: String?,
+    val fraction: Double?,
+    val guide: String?,
+    val mockLocation: Boolean,
+    /** 기록 파일 재생 중(시연용). "모의 위치" 대신 이것을 밝힙니다. */
+    val replaying: Boolean = false,
+    /** 다음 회전: "LEFT"·"RIGHT"·"UTURN"과 남은 거리(m). 300m 안일 때만. */
+    val turnKind: String? = null,
+    val turnRemainingM: Int? = null,
+    /** 직진 구간: 다음 회전(없으면 도착)까지 남은 m. 300m 안에 회전이 있거나 코스를 벗어났으면 null. */
+    val straightM: Int? = null,
+    /** 직진 뒤 다음 회전 이름("우회전" 등). 남은 회전이 없으면 null(도착까지). */
+    val straightNext: String? = null,
+    val zoneLimitKmh: Int? = null,
+    val zoneSchool: Boolean = false,
+    val speedKmh: Float? = null,
+)
+
+/** 남은 거리 글자: 1km 넘으면 0.1km 단위, 아니면 10m 단위. */
+fun distanceText(m: Int): String = if (m >= 1000) "%.1fkm".format(m / 1000.0) else "${(m / 10) * 10}m"
 
 /** 주행 중 화면. 감점은 보여 주지 않고(시험 모드 침묵), 큰 글자로 모드·코스·안내만 둡니다. 누를 것이 없습니다. */
 @Composable
@@ -205,7 +227,11 @@ fun DrivingScreen(ui: DrivingUi) {
                 if (ui.mode == CoachMode.EXAM) "끝날 때까지 감점은 말하지 않아요" else "실수하면 바로 한 문장으로 알려 줘요",
                 style = MaterialTheme.typography.bodyLarge, color = Road.Graphite, modifier = Modifier.weight(1f),
             )
-            if (ui.mockLocation) Tag("모의 위치", large = true)
+            // 연출을 숨기지 않습니다: 기록 재생이면 "시연용 재생", adb로 위치를 넣으면 "모의 위치"
+            when {
+                ui.replaying -> Tag("시연용 재생", Road.RedPen, filled = true, large = true)
+                ui.mockLocation -> Tag("모의 위치", large = true)
+            }
         }
         if (ui.course != null) {
             Column(verticalArrangement = Arrangement.spacedBy(sp.s)) {
@@ -216,13 +242,48 @@ fun DrivingScreen(ui: DrivingUi) {
                 CourseRoad(ui.fraction ?: 0.0)
             }
         }
-        Panel(Modifier.fillMaxWidth().heightIn(min = 180.dp), color = Road.Asphalt) {
-            Box(Modifier.padding(horizontal = sp.l, vertical = sp.l), contentAlignment = Alignment.CenterStart) {
-                Text(
-                    ui.guide ?: if (ui.course != null) "${ui.course}를 따라가요" else "차의 조작을 보고 있어요",
-                    style = MaterialTheme.typography.displayMedium,
-                    color = if (ui.guide != null) Road.LaneWhite else Road.LaneWhite.copy(alpha = 0.8f),
-                )
+        Row(horizontalArrangement = Arrangement.spacedBy(sp.l), verticalAlignment = Alignment.CenterVertically) {
+            Panel(Modifier.weight(1f).heightIn(min = 180.dp), color = Road.Asphalt) {
+                Row(
+                    Modifier.padding(horizontal = sp.l, vertical = sp.l),
+                    horizontalArrangement = Arrangement.spacedBy(sp.l),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // 다음 회전이 300m 안이면 화살표와 남은 거리를 크게. 거리는 위치가 바뀔 때마다 줄어듭니다.
+                    if (ui.turnKind != null && ui.turnRemainingM != null) {
+                        TurnArrow(ui.turnKind)
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                if (ui.turnRemainingM <= 30) "곧" else "${(ui.turnRemainingM / 10) * 10}m",
+                                style = MaterialTheme.typography.displayLarge, color = Road.LaneYellow,
+                            )
+                            Text(
+                                when (ui.turnKind) { "LEFT" -> "좌회전"; "RIGHT" -> "우회전"; else -> "유턴" },
+                                style = MaterialTheme.typography.headlineMedium, color = Road.LaneWhite,
+                            )
+                        }
+                    } else if (ui.straightM != null) {
+                        // 직진 구간에서도 화살표로 계속 방향을 보여 줍니다(11/7 사용자 요청).
+                        TurnArrow("STRAIGHT")
+                        Column(Modifier.weight(1f)) {
+                            Text("직진", style = MaterialTheme.typography.displayLarge, color = Road.LaneWhite)
+                            Text(
+                                (ui.straightNext?.let { "다음 ${it}까지 " } ?: "도착까지 ") + distanceText(ui.straightM),
+                                style = MaterialTheme.typography.headlineMedium, color = Road.LaneYellow,
+                            )
+                        }
+                    } else {
+                        Text(
+                            ui.guide ?: if (ui.course != null) "${ui.course}를 따라가요" else "차의 조작을 보고 있어요",
+                            style = MaterialTheme.typography.displayMedium,
+                            color = if (ui.guide != null) Road.LaneWhite else Road.LaneWhite.copy(alpha = 0.8f),
+                        )
+                    }
+                }
+            }
+            // 제한속도·보호구역 구간 안이면 표지. 넘으면 노랑(경고), 실격 기준을 넘으면 빨강
+            if (ui.zoneLimitKmh != null) {
+                SpeedLimitSign(ui.zoneLimitKmh, speedLevel(ui.speedKmh, ui.zoneLimitKmh, ui.zoneSchool), school = ui.zoneSchool)
             }
         }
         Text("끝나면 P로 바꾸고 운전석 문을 열어 주세요", style = MaterialTheme.typography.bodyLarge, color = Road.Graphite)
@@ -240,6 +301,10 @@ data class ReviewUi(
     val car: List<ExamItem>,
     val carDq: List<Disqualification>,
     val moving: Boolean,
+    /** 코스 지점별 결과(회전 안내, 횡단보도 정지, 구간 최고 속도). */
+    val points: List<PointResult> = emptyList(),
+    /** 같은 코스 지난번과 비교한 한 줄. 지난 기록이 없으면 null. */
+    val compare: String? = null,
 )
 
 data class ReviewMarks(
@@ -329,7 +394,7 @@ private fun Summary(
                 style = MaterialTheme.typography.bodyMedium, color = Road.Graphite,
             )
             if (ui.course == null) {
-                Text("코스 없이 달려 서행·일시정지·횡단보도(37·38·43번)는 보지 않았어요.", style = MaterialTheme.typography.bodyMedium, color = Road.Graphite)
+                Text("코스 없이 달려 서행·일시정지(37·38번)는 보지 않았어요.", style = MaterialTheme.typography.bodyMedium, color = Road.Graphite)
             }
             if (ui.interrupted) {
                 Text("앱이 주행 중에 멈춰 그때까지의 기록만 있어요. 점수는 참고로만 보세요.", style = MaterialTheme.typography.bodyLarge, color = Road.Ink)
@@ -341,11 +406,34 @@ private fun Summary(
                     onMarks(marks.copy(excluded = if (on) marks.excluded + i else marks.excluded - i))
                 }
             }
+            if (ui.compare != null) {
+                Surface(shape = MaterialTheme.shapes.medium, color = Road.Paper, modifier = Modifier.fillMaxWidth()) {
+                    Text(ui.compare, style = MaterialTheme.typography.titleMedium, color = Road.Ink, modifier = Modifier.padding(sp.m))
+                }
+            }
+            if (ui.points.isNotEmpty()) {
+                val ok = ui.points.count { it.ok == true }
+                val judged = ui.points.count { it.ok != null }
+                SectionTitle("코스 지점", trailing = "${ok}/${judged} 지킴")
+                ui.points.forEach { PointRow(it) }
+            }
             if (!ui.moving) {
                 Spacer(Modifier.height(sp.s))
                 PrimaryButton("저장하고 처음으로", onSave, Modifier.fillMaxWidth())
             }
         }
+    }
+}
+
+/** 코스 지점 한 줄: 표시(지킴 ✓ / 못 지킴 ✕ / 안내만 ·), 이름, 설명. */
+@Composable
+private fun PointRow(p: PointResult) {
+    val sp = LocalSpacing.current
+    val (mark, color) = when (p.ok) { true -> "✓" to Road.SignGreen; false -> "✕" to Road.RedPen; null -> "·" to Road.Graphite }
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = sp.s), verticalAlignment = Alignment.CenterVertically) {
+        Text(mark, style = MaterialTheme.typography.titleLarge, color = color, modifier = Modifier.widthIn(min = 44.dp))
+        Text(p.name, style = MaterialTheme.typography.bodyLarge, color = Road.Ink, modifier = Modifier.weight(1f))
+        Text(p.detail, style = MaterialTheme.typography.labelLarge, color = if (p.ok == false) Road.RedPen else Road.Graphite)
     }
 }
 

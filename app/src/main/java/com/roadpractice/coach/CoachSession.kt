@@ -69,6 +69,7 @@ class CoachSession(
                     t,
                 )
                 CourseEvent.OffRoute -> ExamEvent.Guide("코스를 벗어났어요. 안전하게 코스로 돌아가요", e, t)
+                is CourseEvent.MissedTurn -> ExamEvent.Guide("${e.checkpoint.type.ahead.removeSuffix("해요")} 지점을 지났어요. 안전하게 코스로 돌아가요", e, t)
                 CourseEvent.BackOnRoute -> ExamEvent.Guide("코스로 돌아왔어요", e, t)
                 CourseEvent.Done -> ExamEvent.Guide("코스를 다 돌았어요. 안전한 곳에 세워 주세요", e, t)
                 is CourseEvent.Progress -> null

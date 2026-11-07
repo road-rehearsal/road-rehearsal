@@ -88,7 +88,11 @@ class CoachService : Service() {
                     Log.i(TAG, "GUIDE ${event.course} \"${event.text}\"")
                 }
                 is ExamEvent.Ended -> {
-                    if (runId != NO_RUN) log?.endRun(runId, System.currentTimeMillis())
+                    if (runId != NO_RUN) {
+                        current.course?.pointResults?.let { pts -> log?.addCoursePoints(runId, pts) }
+                        current.course?.pointResults?.forEach { Log.i(TAG, "POINT ${it.encode()}") }
+                        log?.endRun(runId, System.currentTimeMillis())
+                    }
                     // 시험 중에는 말하지 않지만 끝난 뒤 알리는 것은 별표 26 비고 마와 맞습니다.
                     // 내비 등 다른 화면이 앞에 있어도 결과표로 돌아올 수 있게 알림을 띄웁니다.
                     queue?.say(END_SENTENCE)
@@ -100,7 +104,16 @@ class CoachService : Service() {
         updateNotification(current)
         val tracker = current.course
         tracker?.let { if (it.fraction != lastFraction) { lastFraction = it.fraction; Log.i(TAG, "COURSE at=${it.alongM.toInt()}m ${"%.3f".format(it.fraction)}") } }
-        publish(Snapshot(current.mode, state, current.result, current.started, current.ended, runId, tracker?.course?.name, tracker?.fraction, lastGuide))
+        publish(
+            Snapshot(
+                current.mode, state, current.result, current.started, current.ended, runId, tracker?.course?.name, tracker?.fraction, lastGuide,
+                replaying = replay != null,
+                nextTurn = tracker?.nextTurn(),
+                straight = tracker?.straightAhead(),
+                zoneLimitKmh = tracker?.activeZoneLimit()?.second,
+                zoneSchool = tracker?.activeZoneLimit()?.first?.type == CheckpointType.SCHOOL,
+            ),
+        )
     }
 
     private fun publish(snapshot: Snapshot) {
@@ -190,6 +203,15 @@ class CoachService : Service() {
         val courseFraction: Double? = null,
         /** 마지막 코스 안내 문장. 감점 문장은 넣지 않습니다(시험 모드 침묵). */
         val lastGuide: String? = null,
+        /** 기록 파일을 재생 중(시연용). 화면에 밝힙니다. */
+        val replaying: Boolean = false,
+        /** 다음 회전(300m 안). 화면 화살표용. */
+        val nextTurn: NextTurn? = null,
+        /** 직진 구간: 다음 회전(없으면 도착)까지 남은 m와 그 회전 종류(도착이면 null). */
+        val straight: Pair<Int, CheckpointType?>? = null,
+        /** 지금 구간의 제한속도. 제한속도 표지용. */
+        val zoneLimitKmh: Float? = null,
+        val zoneSchool: Boolean = false,
     )
 
     companion object {

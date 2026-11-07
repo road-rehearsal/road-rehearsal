@@ -57,11 +57,25 @@ class TtsSpeaker(context: Context) : Speaker {
     private var ready = false
     private var doneCallback: (() -> Unit)? = null
     private val timeout = Runnable { finish("timeout") }
+    private var held: Pair<String, () -> Unit>? = null
+    private val giveUp = Runnable {
+        held?.let { (_, done) ->
+            held = null
+            Log.w(TAG, "TTS_NOT_READY dropped")
+            done()
+        }
+    }
 
     init {
         engine.initialize(object : OnInitializeListener {
             override fun onSuccess() {
                 ready = true
+                // 준비 전에 온 문장을 이제 말합니다(11/7 재생: 첫 안내가 TTS_NOT_READY로 사라짐).
+                held?.let { (text, done) ->
+                    held = null
+                    main.removeCallbacks(giveUp)
+                    main.post { speak(text, done) }
+                }
                 engine.addEventListener(object : EventListener {
                     override fun onStart() = Unit
                     override fun onReady() = Unit
@@ -85,8 +99,11 @@ class TtsSpeaker(context: Context) : Speaker {
     override fun speak(text: String, onDone: () -> Unit) {
         Log.i(TAG, "SPEAK $text")
         if (!ready) {
-            Log.w(TAG, "TTS_NOT_READY")
-            onDone()
+            // 엔진 준비 전: 잠시 들고 있다가 준비되면 말합니다. 너무 늦으면(지난 일) 버립니다.
+            Log.w(TAG, "TTS_NOT_READY hold")
+            held = text to onDone
+            main.removeCallbacks(giveUp)
+            main.postDelayed(giveUp, HOLD_MS)
             return
         }
         doneCallback = onDone
@@ -109,6 +126,7 @@ class TtsSpeaker(context: Context) : Speaker {
     fun release() {
         main.removeCallbacksAndMessages(null)
         doneCallback = null
+        held = null
         try {
             engine.release()
         } catch (e: Exception) {
@@ -119,5 +137,8 @@ class TtsSpeaker(context: Context) : Speaker {
     private companion object {
         const val TAG = "RoadCoach"
         const val TIMEOUT_MS = 8_000L
+
+        /** 엔진 준비를 기다리는 최대 시간. 이보다 늦으면 지난 안내라 버립니다. */
+        const val HOLD_MS = 6_000L
     }
 }

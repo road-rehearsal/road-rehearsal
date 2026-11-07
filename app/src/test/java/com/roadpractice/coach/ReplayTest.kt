@@ -108,7 +108,7 @@ class ReplayTest {
         }
         section("5 GPS 튐·끊김", CoachMode.EXAM, glitch)
 
-        // 6 한 번도 서지 않음(출발 뒤 속도를 최소 12km/h로): 횡단보도 지점마다 43번이 나와야 함
+        // 6 한 번도 서지 않음(출발 뒤 속도를 최소 12km/h로): 11/7부터 횡단보도는 감점 없음(43번은 동승자 체크)
         val t0 = original.first().t
         val rolling = original.map { r -> if (r.t - t0 > 20_000) r.copy(kmh = maxOf(r.kmh ?: 0f, 12f)) else r }
         section("6 서지 않고 통과", CoachMode.EXAM, rolling)

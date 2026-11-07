@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -19,9 +21,26 @@ android {
         versionName = "0.1.0"
     }
 
+    // release 서명: 저장소에 없는 keystore.properties(와 release.jks)가 있을 때만. 없으면 서명 없이 빌드됩니다.
+    val keyProps = Properties().apply {
+        val f = rootProject.file("keystore.properties")
+        if (f.isFile) f.inputStream().use { load(it) }
+    }
+    signingConfigs {
+        if (keyProps.isNotEmpty()) {
+            create("release") {
+                storeFile = rootProject.file(keyProps.getProperty("storeFile"))
+                storePassword = keyProps.getProperty("storePassword")
+                keyAlias = keyProps.getProperty("keyAlias")
+                keyPassword = keyProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (keyProps.isNotEmpty()) signingConfig = signingConfigs.getByName("release")
         }
     }
 

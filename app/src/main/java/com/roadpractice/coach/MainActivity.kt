@@ -141,7 +141,24 @@ class MainActivity : ComponentActivity() {
         }
         when {
             s != null && s.started && !s.ended -> DrivingScreen(
-                DrivingUi(s.mode, s.courseName?.let(::shortName), s.courseFraction, s.lastGuide, isEmulator),
+                DrivingUi(
+                    s.mode, s.courseName?.let(::shortName), s.courseFraction, s.lastGuide, isEmulator,
+                    replaying = s.replaying,
+                    turnKind = s.nextTurn?.type?.name,
+                    turnRemainingM = s.nextTurn?.remainingM,
+                    straightM = s.straight?.first,
+                    straightNext = s.straight?.let { st ->
+                        when (st.second) {
+                            CheckpointType.LEFT -> "좌회전"
+                            CheckpointType.RIGHT -> "우회전"
+                            CheckpointType.UTURN -> "유턴"
+                            else -> null
+                        }
+                    },
+                    zoneLimitKmh = s.zoneLimitKmh?.toInt(),
+                    zoneSchool = s.zoneSchool,
+                    speedKmh = s.state?.speedKmh,
+                ),
             )
             reviewRun != null -> Review(reviewRun, moving)
             s != null && !s.started && !s.ended -> ReadyScreen(
@@ -158,7 +175,12 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun Home(moving: Boolean) {
         var choice by rememberSaveable { mutableIntStateOf(0) }
-        val options = remember { listOf("뽑기") + courses.map { shortName(it.name) } + "코스 없이" }
+        // 폰으로 기록한 코스는 "내 기록"과 길이를 붙여 앱 기본 코스(현대시험장)와 나눠 보여 줍니다.
+        val options = remember {
+            listOf("뽑기") + courses.map { c ->
+                if (c.id in CourseLoader.localIds) "${shortName(c.name)} · 내 기록 ${"%.1f".format(c.lengthM / 1000)}km" else shortName(c.name)
+            } + "코스 없이"
+        }
         val version = dataVersion
         val runs = remember(version) {
             log.recentRuns().map { run ->
@@ -200,6 +222,8 @@ class MainActivity : ComponentActivity() {
                 car = base.lines.filter { it.byCar }.mapNotNull { line -> ExamItem.entries.firstOrNull { it.number == line.number } },
                 carDq = Disqualification.entries.filter { it.title in base.disqualifications },
                 moving = false,
+                points = log.coursePoints(runId),
+                compare = run?.course?.let { id -> compareLine(runId, id) },
             )
         }
         var marks by rememberSaveable(runId, stateSaver = MarksSaver) { mutableStateOf(ReviewMarks()) }
@@ -214,12 +238,32 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    /**
+     * 같은 코스 지난번과 비교한 한 줄. 동승자 체크 전이라 최종 점수 대신 "차가 본 감점 개수"로 비교합니다.
+     * 다시 연습할 이유(무엇이 나아졌나)를 보여 주려는 것입니다.
+     */
+    private fun compareLine(runId: Long, course: String): String? {
+        val prev = log.previousOnCourse(runId, course) ?: return null
+        val before = log.carDeductionCount(prev.id)
+        val now = log.carDeductionCount(runId)
+        val diff = before - now
+        val trend = when {
+            diff > 0 -> "지난번보다 ${diff}개 줄었어요"
+            diff < 0 -> "지난번보다 ${-diff}개 늘었어요"
+            else -> "지난번과 같아요"
+        }
+        val score = prev.score?.let { " (지난번 ${it}점)" } ?: ""
+        return "같은 코스에서 차가 본 감점이 $trend: ${before}개 → ${now}개$score"
+    }
+
     /** 0 = 뽑기, 1..n = 코스, 마지막 = 코스 없이. 뽑기는 완주 횟수가 가장 적은 코스 중에서 고릅니다. */
     private fun pickCourse(choice: Int): String? = when {
         choice == 0 -> {
+            // 뽑기는 앱 기본 코스 안에서만(내 기록 코스는 직접 고름)
+            val pool = courses.filter { it.id !in CourseLoader.localIds }
             val done = log.courseDoneCounts()
-            val least = courses.minOfOrNull { done[it.id] ?: 0 }
-            courses.filter { (done[it.id] ?: 0) == least }.randomOrNull()?.id
+            val least = pool.minOfOrNull { done[it.id] ?: 0 }
+            pool.filter { (done[it.id] ?: 0) == least }.randomOrNull()?.id
         }
         choice in 1..courses.size -> courses[choice - 1].id
         else -> null

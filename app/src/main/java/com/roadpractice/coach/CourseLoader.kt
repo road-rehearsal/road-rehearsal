@@ -22,6 +22,11 @@ object CourseLoader {
 
     fun find(context: Context, id: String?): Course? = id?.let { key -> all(context).firstOrNull { it.id == key } }
 
+    /** 폰으로 기록해 만든 코스(기기 안 파일)인지. 코스 고르기에서 앱 기본 코스와 나눠 보여 줍니다. */
+    @Volatile
+    var localIds: Set<String> = emptySet()
+        private set
+
     private fun load(context: Context): List<Course> {
         val bundled = parse(context.assets.open("courses.json").bufferedReader().use { it.readText() })
         val local = File(context.filesDir, LOCAL_FILE)
@@ -32,6 +37,7 @@ object CourseLoader {
         } else {
             emptyList()
         }
+        localIds = mine.map { it.id }.toSet()
         Log.i(TAG, "COURSES bundled=${bundled.size} local=${mine.size}")
         return bundled + mine
     }
