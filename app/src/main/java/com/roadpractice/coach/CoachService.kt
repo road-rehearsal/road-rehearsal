@@ -1,4 +1,4 @@
-package com.roadpractice.coach
+﻿package com.roadpractice.coach
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -18,6 +18,7 @@ import android.util.Log
  */
 class CoachService : Service() {
     private var hub: SignalHub? = null
+    private var replay: ReplaySource? = null
     private var tts: TtsSpeaker? = null
     private var queue: SpeechQueue? = null
     private var session: CoachSession? = null
@@ -44,7 +45,17 @@ class CoachService : Service() {
         lastGuide = null
         Log.i(TAG, "MODE $mode course=${course?.id ?: "-"}")
         publish(Snapshot(mode, hub?.state, ExamResult(emptyList(), emptyList()), started = false, ended = false, runId = NO_RUN))
-        if (hub == null) {
+        val replayName = intent?.getStringExtra(EXTRA_REPLAY)
+        val debuggable = applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
+        replay?.stop()
+        replay = null
+        if (replayName != null && debuggable) {
+            // 시연용 재생: 차량 신호 대신 기록 파일(앱 파일 폴더 filesDir)을 넣습니다. 디버그 빌드에서만.
+            hub?.stop()
+            hub = null
+            val file = java.io.File(filesDir, replayName)
+            replay = ReplaySource(file, intent.getIntExtra(EXTRA_REPLAY_SPEED, 1)) { onVehicleState(it) }.also { it.start() }
+        } else if (hub == null) {
             hub = SignalHub(applicationContext) { onVehicleState(it) }.also { it.start() }
         }
         return START_NOT_STICKY
@@ -100,6 +111,8 @@ class CoachService : Service() {
     override fun onDestroy() {
         hub?.stop()
         hub = null
+        replay?.stop()
+        replay = null
         queue?.clear()
         tts?.release()
         tts = null
@@ -137,7 +150,8 @@ class CoachService : Service() {
     private fun updateNotification(s: CoachSession) {
         val mode = if (s.mode == CoachMode.EXAM) "시험 모드" else "연습 모드"
         val course = s.course?.let { " · ${it.course.name} ${(it.fraction * 10).toInt() * 10}%" } ?: ""
-        val text = when {
+        val replaying = if (replay != null) "시연용 재생 · " else ""
+        val text = replaying + when {
             s.ended -> "$mode · 끝남. 눌러서 결과표 보기"
             s.started -> "$mode 주행 중$course"
             else -> "$mode 준비됨"
@@ -187,6 +201,9 @@ class CoachService : Service() {
         const val END_SENTENCE = "주행이 끝났어요. 결과표는 앱에서 확인해요"
         private const val EXTRA_MODE = "mode"
         private const val EXTRA_COURSE = "course"
+        /** 시연용 재생 파일 이름(앱 파일 폴더 filesDir 안). 디버그 빌드에서만 씁니다. */
+        const val EXTRA_REPLAY = "replay"
+        const val EXTRA_REPLAY_SPEED = "replaySpeed"
         const val NO_RUN = -1L
 
         /** 화면이 다시 켜졌을 때 바로 보여 줄 마지막 상황. */
@@ -197,9 +214,10 @@ class CoachService : Service() {
         /** 메인 스레드에서 호출됩니다. null은 서비스가 멈췄다는 뜻입니다. */
         var listener: ((Snapshot?) -> Unit)? = null
 
-        fun start(context: Context, mode: CoachMode, courseId: String? = null) {
+        fun start(context: Context, mode: CoachMode, courseId: String? = null, replay: String? = null, replaySpeed: Int = 1) {
             context.startForegroundService(
-                Intent(context, CoachService::class.java).putExtra(EXTRA_MODE, mode.name).putExtra(EXTRA_COURSE, courseId),
+                Intent(context, CoachService::class.java).putExtra(EXTRA_MODE, mode.name).putExtra(EXTRA_COURSE, courseId)
+                    .putExtra(EXTRA_REPLAY, replay).putExtra(EXTRA_REPLAY_SPEED, replaySpeed),
             )
         }
 

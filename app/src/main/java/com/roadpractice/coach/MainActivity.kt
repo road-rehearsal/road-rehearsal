@@ -68,6 +68,19 @@ class MainActivity : ComponentActivity() {
             "pleos.car.permission.FUSED_LOCATION",
         ).filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
         if (missing.isNotEmpty()) requestPermissions(missing.toTypedArray(), PERMISSION_REQUEST)
+        startReplayIfAsked(intent)
+    }
+
+    /**
+     * 시연용 재생(디버그 빌드만): adb로 기록 파일 이름을 넘기면 그 기록으로 바로 시작합니다.
+     *   am start --user 10 -n com.roadpractice.coach/.MainActivity --es replay drive.csv --es course my_route_1 --es mode EXAM --ei replaySpeed 4
+     */
+    private fun startReplayIfAsked(i: Intent?) {
+        val file = i?.getStringExtra(CoachService.EXTRA_REPLAY) ?: return
+        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE == 0) return
+        val mode = runCatching { CoachMode.valueOf(i.getStringExtra("mode") ?: "PRACTICE") }.getOrDefault(CoachMode.PRACTICE)
+        CoachService.start(this, mode, i.getStringExtra("course"), file, i.getIntExtra(CoachService.EXTRA_REPLAY_SPEED, 1))
+        i.removeExtra(CoachService.EXTRA_REPLAY)
     }
 
     override fun onStart() {
@@ -81,6 +94,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        startReplayIfAsked(intent)
         onSnapshot(CoachService.latest)
     }
 

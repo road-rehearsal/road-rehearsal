@@ -77,8 +77,57 @@ class CourseTrackerTest {
     fun uturnIsGuidanceOnly() {
         val uturn = Checkpoint(CheckpointType.UTURN, "유턴", 420.0, 40.0)
         val events = drive(CourseTracker(course(uturn)), 20f)
-        assertEquals(1, events.count { it is CourseEvent.Ahead })
+        // 300·100·30m 전에 한 번씩
+        assertEquals(listOf(300, 100, 30), events.filterIsInstance<CourseEvent.Ahead>().map { it.distanceM })
         assertEquals(0, events.count { it is CourseEvent.Passed })
+    }
+
+    @Test
+    fun turnGuidanceSkipsFarNoticeWhenAlreadyClose() {
+        // 출발하자마자 80m 앞에서 도는 코스: 300m 안내 없이 100m부터
+        val right = Checkpoint(CheckpointType.RIGHT, "우회전", 80.0, 15.0)
+        val ahead = drive(CourseTracker(course(right)), 20f).filterIsInstance<CourseEvent.Ahead>().map { it.distanceM }
+        assertEquals(listOf(100, 30), ahead)
+        assertEquals("곧 우회전해요", turnSentence(CheckpointType.RIGHT, 30, 30))
+        assertEquals("100미터 앞에서 우회전해요", turnSentence(CheckpointType.RIGHT, 100, 30))
+    }
+
+    @Test
+    fun schoolZoneOverLimitIsReportedOnce() {
+        val school = Checkpoint(CheckpointType.SCHOOL, "어린이보호구역", 200.0, 60.0, 30f)
+        val over = drive(CourseTracker(course(school)), 40f).filterIsInstance<CourseEvent.ZoneOver>()
+        assertEquals(1, over.size)
+        assertEquals(40f, over.single().maxKmh)
+        assertTrue(drive(CourseTracker(course(school)), 25f).none { it is CourseEvent.ZoneOver })
+    }
+
+    @Test
+    fun speedZoneAllowsUpToTenOver() {
+        val zone = Checkpoint(CheckpointType.SPEED, "제한속도 30", 200.0, 60.0, 30f)
+        assertTrue(drive(CourseTracker(course(zone)), 40f).none { it is CourseEvent.ZoneOver })
+        assertEquals(1, drive(CourseTracker(course(zone)), 41f).count { it is CourseEvent.ZoneOver })
+    }
+
+    @Test
+    fun crosswalkInsideSpeedZoneIsJudgedToo() {
+        // 구간이 겹쳐도 둘 다 판정(11/7 전에는 한 번에 한 지점만 셌음)
+        val zone = Checkpoint(CheckpointType.SPEED, "제한속도 30", 200.0, 100.0, 30f)
+        val events = drive(CourseTracker(course(zone, crosswalk)), 45f)
+        assertEquals(1, events.count { it is CourseEvent.ZoneOver })
+        assertEquals(1, events.count { it is CourseEvent.Passed })
+    }
+
+    @Test
+    fun sessionTurnsSchoolZoneIntoDisqualification() {
+        val school = Checkpoint(CheckpointType.SCHOOL, "어린이보호구역", 200.0, 60.0, 30f)
+        val said = ArrayList<String>()
+        val session = CoachSession(CoachMode.EXAM, say = { said += it }, course = CourseTracker(course(school)))
+        time = 0
+        session.onState(at(0, 0f).copy(gear = Gear.PARK))
+        session.onState(at(0, 0f).copy(gear = Gear.DRIVE))
+        for (k in 1..15) session.onState(at(k, 45f).copy(gear = Gear.DRIVE))
+        assertEquals(listOf(Disqualification.SCHOOL_ZONE_SPEED), session.result.disqualified)
+        assertTrue(said.isEmpty()) // 시험 모드는 말하지 않음
     }
 
     @Test

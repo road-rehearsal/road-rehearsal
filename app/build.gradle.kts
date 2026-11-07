@@ -35,6 +35,10 @@ android {
     buildFeatures {
         compose = true
     }
+    // 실제 주행 기록 재생 시험(ReplayTest). 기록은 사용자 위치라 저장소 밖에 두고 -PreplayDir=로 넘깁니다.
+    testOptions.unitTests.all {
+        it.systemProperty("replay.dir", (project.findProperty("replayDir") ?: "").toString())
+    }
 }
 
 dependencies {
@@ -51,4 +55,6 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     implementation("androidx.activity:activity-compose:1.9.3")
     testImplementation("junit:junit:4.13.2")
+    // 단위 시험에서 코스 JSON을 읽으려고(안드로이드 org.json은 JVM 시험에서 동작하지 않음)
+    testImplementation("org.json:json:20240303")
 }

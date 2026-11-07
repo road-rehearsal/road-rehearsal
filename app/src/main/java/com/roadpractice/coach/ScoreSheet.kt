@@ -6,7 +6,7 @@ package com.roadpractice.coach
  */
 enum class PassengerItem(val number: Int, val points: Int, val task: String, val title: String) {
     SAFETY_CHECK(2, 7, "출발 전 준비", "출발 전 차량점검 및 안전 미확인"),
-    NO_START_20S(5, 10, "출발", "20초 내 미출발"),
+    // 5번(20초 내 미출발)은 11/7부터 차가 봅니다(ExamItem.NO_START).
     NO_RESTART_10S(6, 7, "출발", "10초 내 미시동"),
     BLOCK_TRAFFIC(7, 7, "출발", "주변 교통 방해"),
     ENGINE_STALL(8, 7, "출발", "엔진 정지"),

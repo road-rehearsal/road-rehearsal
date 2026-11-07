@@ -58,11 +58,16 @@ class CoachSession(
         return tracker.onState(state).mapNotNull { e ->
             when (e) {
                 is CourseEvent.Ahead -> when {
-                    e.checkpoint.type == CheckpointType.UTURN -> ExamEvent.Guide(e.checkpoint.type.ahead, e, t)
+                    e.checkpoint.type.isTurn ->
+                        ExamEvent.Guide(turnSentence(e.checkpoint.type, e.distanceM, NEAR_TURN_M), e, t)
                     mode == CoachMode.PRACTICE -> ExamEvent.Guide(e.checkpoint.type.ahead, e, t)
                     else -> null
                 }
                 is CourseEvent.Passed -> e.checkpoint.type.item?.takeIf { !e.ok }?.let { ExamEvent.Deduction(it, t) }
+                is CourseEvent.ZoneOver -> ExamEvent.Disqualified(
+                    if (e.checkpoint.type == CheckpointType.SCHOOL) Disqualification.SCHOOL_ZONE_SPEED else Disqualification.SPEED_OVER,
+                    t,
+                )
                 CourseEvent.OffRoute -> ExamEvent.Guide("코스를 벗어났어요. 안전하게 코스로 돌아가요", e, t)
                 CourseEvent.BackOnRoute -> ExamEvent.Guide("코스로 돌아왔어요", e, t)
                 CourseEvent.Done -> ExamEvent.Guide("코스를 다 돌았어요. 안전한 곳에 세워 주세요", e, t)
@@ -70,6 +75,11 @@ class CoachSession(
                 CourseEvent.NotAtStart -> ExamEvent.Guide("코스 출발점에서 시작하면 코스를 따라 안내해요", e, t)
             }
         }
+    }
+
+    private companion object {
+        /** 이 거리 이하 회전 안내는 "곧 ~해요". CourseThresholds.turnNoticeM의 마지막 값과 같게 둡니다. */
+        const val NEAR_TURN_M = 30
     }
 
     private fun practiceSay(sentence: String, timeMs: Long) {

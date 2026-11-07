@@ -8,6 +8,9 @@ package com.roadpractice.coach
 enum class ExamItem(val number: Int, val points: Int, val title: String, val sentence: String) {
     DOOR(1, 5, "차문 닫힘 미확인", "문이 열려 있어요"),
     PARKING_BRAKE(3, 10, "주차 브레이크 미해제", "주차 브레이크를 풀어 주세요"),
+
+    /** 출발 지시(기어를 P에서 뺀 때로 봄) 뒤 20초 안에 출발하지 않음. 신호 대기 정지와 섞이지 않게 처음 출발만 봅니다. */
+    NO_START(5, 10, "20초 내 미출발", "준비되면 출발해요"),
     STOP_NOT_NEUTRAL(4, 5, "정지 중 기어 미중립", "오래 설 때는 중립이에요"),
     HARD_START(9, 7, "급조작·급출발", "조금 더 천천히 출발해요"),
     EDGE_NO_SIGNAL(11, 5, "출발 때 신호 안 함", "출발할 때 깜빡이를 켜요"),
@@ -31,6 +34,12 @@ enum class ExamItem(val number: Int, val points: Int, val title: String, val sen
 /** 실격 사유 중 차량 신호로 보는 것. 연습용이므로 주행을 멈추지 않고 결과표에 표시합니다. */
 enum class Disqualification(val title: String, val sentence: String) {
     SEAT_BELT("좌석안전띠 미착용", "안전띠를 매 주세요"),
+
+    /** 코스 자료에 보호구역이 있을 때만 봅니다. */
+    SCHOOL_ZONE_SPEED("보호구역 최고 속도 초과", "보호구역에서는 천천히 가요"),
+
+    /** 코스 자료에 제한속도 구간이 있을 때만 봅니다. 차량 신호의 제한속도는 에뮬레이터에서 0만 옵니다. */
+    SPEED_OVER("지정 최고 속도 10km/h 초과", "제한속도를 지켜요"),
 }
 
 sealed interface ExamEvent {
@@ -62,12 +71,16 @@ data class ExamThresholds(
     val rateWindowMs: Long = 1_000,
     val rateMinSpanMs: Long = 500,
     val repeatGapMs: Long = 8_000,
+    /** 별표 26 5번: 출발 지시 뒤 20초. */
+    val noStartMs: Long = 20_000,
 )
 
 class ExamRules(private val t: ExamThresholds = ExamThresholds()) {
     private var before: VehicleState? = null
     private var active = false
     private var movedSinceStart = false
+    private var startedAt = -1L
+    private var noStartScored = false
     private var stoppedAt = -1L
     private var noBrakeAt = -1L
     private var stopScored = false
@@ -103,6 +116,8 @@ class ExamRules(private val t: ExamThresholds = ExamThresholds()) {
     private fun begin(s: VehicleState, out: MutableList<ExamEvent>) {
         active = true
         movedSinceStart = false
+        startedAt = s.timeMs
+        noStartScored = false
         stoppedAt = -1L
         noBrakeAt = -1L
         turning = false
@@ -125,6 +140,11 @@ class ExamRules(private val t: ExamThresholds = ExamThresholds()) {
 
     private fun checkStates(prev: VehicleState, s: VehicleState, out: MutableList<ExamEvent>) {
         if (s.isMoving) movedSinceStart = true
+        // 속도 값을 받은 뒤에만 봅니다(값이 없으면 감점하지 않음).
+        if (!movedSinceStart && !noStartScored && s.speedKmh != null && s.timeMs - startedAt >= t.noStartMs) {
+            noStartScored = true
+            deduct(ExamItem.NO_START, s, out)
+        }
         if (s.isMoving && s.openDoors.isNotEmpty() && (!prev.isMoving || prev.openDoors.isEmpty())) deduct(ExamItem.DOOR, s, out)
         if (s.isMoving && s.parkingBrakeOn == true && (!prev.isMoving || prev.parkingBrakeOn != true)) deduct(ExamItem.PARKING_BRAKE, s, out)
         if (s.isMoving && s.gear == Gear.NEUTRAL && prev.gear != Gear.NEUTRAL) deduct(ExamItem.COAST_NEUTRAL, s, out)
