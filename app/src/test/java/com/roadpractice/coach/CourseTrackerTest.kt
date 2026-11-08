@@ -64,32 +64,84 @@ class CourseTrackerTest {
         assertFalse(drive(CourseTracker(course(slow)), 25f).filterIsInstance<CourseEvent.Passed>().single().ok)
     }
 
+    /** 횡단보도 바로 뒤(20m)에서 도는 우회전. 횡단보도 예고는 이런 곳에서만 합니다(11/8 사용자 결정). */
+    private val turnAtCrosswalk = Checkpoint(CheckpointType.RIGHT, "우회전", 220.0, 15.0)
+
     @Test
     fun announcesCheckpointOnceBeforeIt() {
-        val events = drive(CourseTracker(course(crosswalk)), 20f)
-        assertEquals(1, events.count { it is CourseEvent.Ahead })
-        val aheadAt = events.indexOfFirst { it is CourseEvent.Ahead }
+        val events = drive(CourseTracker(course(crosswalk, turnAtCrosswalk)), 20f)
+        val cw = events.filterIsInstance<CourseEvent.Ahead>().filter { it.checkpoint == crosswalk }
+        assertEquals(1, cw.size)
+        val aheadAt = events.indexOf(cw.single())
         val passedAt = events.indexOfFirst { it is CourseEvent.Passed }
         assertTrue(aheadAt < passedAt)
+    }
+
+    @Test
+    fun crosswalkOnStraightIsNotAnnounced() {
+        // 직진 중 지나는 횡단보도는 예고하지 않습니다(신호대로 지나면 됨). 지날 때 속도는 결과표에 참고로 남습니다.
+        val tr = CourseTracker(course(crosswalk))
+        val events = drive(tr, 20f)
+        assertTrue(events.none { it is CourseEvent.Ahead })
+        assertEquals(1, tr.pointResults.count { it.type == CheckpointType.CROSSWALK })
+    }
+
+    @Test
+    fun turnNotSlowDeducts37InSession() {
+        val right = Checkpoint(CheckpointType.RIGHT, "우회전", 300.0, 15.0)
+        val s = CoachSession(CoachMode.EXAM, say = { }, course = CourseTracker(course(right)))
+        time = 0
+        s.onState(at(0, 0f).copy(gear = Gear.PARK))
+        s.onState(at(0, 0f).copy(gear = Gear.DRIVE))
+        for (k in 1..19) s.onState(at(k, 30f).copy(gear = Gear.DRIVE))
+        assertEquals(1, s.result.deductions.count { it == ExamItem.SLOW_DOWN })
+    }
+
+    @Test
+    fun speedOverIsToldAtTheMomentInPracticeOnly() {
+        // 제한속도 30 구간에서 38km/h(넘음) → 45km/h(10 넘게): 넘는 순간 단계별로 한 번씩, 실격 문장은 구간을 나갈 때 다시 말하지 않음
+        val zone = Checkpoint(CheckpointType.SPEED, "제한속도 30", 200.0, 120.0, 30f)
+        fun run(mode: CoachMode): List<String> {
+            val said = ArrayList<String>()
+            val s = CoachSession(mode, say = { said += it }, course = CourseTracker(course(zone)))
+            time = 0
+            s.onState(at(0, 0f).copy(gear = Gear.PARK))
+            s.onState(at(0, 0f).copy(gear = Gear.DRIVE))
+            for (k in 1..19) {
+                val kmh = when { k < 5 -> 25f; k < 7 -> 38f; k < 13 -> 45f; else -> 25f }
+                s.onState(at(k, kmh).copy(gear = Gear.DRIVE))
+            }
+            assertTrue(s.result.disqualified.contains(Disqualification.SPEED_OVER))
+            return said
+        }
+        val practice = run(CoachMode.PRACTICE)
+        assertEquals(1, practice.count { it == "제한속도 30을 넘었어요. 속도를 줄여요" })
+        assertEquals(1, practice.count { it.startsWith("제한속도보다 10km/h 넘게") })
+        assertTrue(practice.none { it == Disqualification.SPEED_OVER.sentence })
+        assertTrue(run(CoachMode.EXAM).none { it.contains("넘었어요") || it.contains("넘게") })
     }
 
     @Test
     fun uturnIsGuidanceOnly() {
         val uturn = Checkpoint(CheckpointType.UTURN, "유턴", 420.0, 40.0)
         val events = drive(CourseTracker(course(uturn)), 20f)
-        // 300·100·30m 전에 한 번씩
-        assertEquals(listOf(300, 100, 30), events.filterIsInstance<CourseEvent.Ahead>().map { it.distanceM })
+        // 먼(300m)·가까운(20km/h면 80m 안)·지금 단계마다 한 번씩
+        val ahead = events.filterIsInstance<CourseEvent.Ahead>()
+        assertEquals(listOf(TurnStage.FAR, TurnStage.NEAR, TurnStage.NOW), ahead.map { it.stage })
+        assertEquals(300, ahead.first().distanceM)
+        assertTrue(ahead[1].distanceM <= 80)
         assertEquals(0, events.count { it is CourseEvent.Passed })
     }
 
     @Test
     fun turnGuidanceSkipsFarNoticeWhenAlreadyClose() {
-        // 출발하자마자 80m 앞에서 도는 코스: 300m 안내 없이 100m부터
-        val right = Checkpoint(CheckpointType.RIGHT, "우회전", 80.0, 15.0)
-        val ahead = drive(CourseTracker(course(right)), 20f).filterIsInstance<CourseEvent.Ahead>().map { it.distanceM }
-        assertEquals(listOf(100, 30), ahead)
-        assertEquals("곧 우회전해요", turnSentence(CheckpointType.RIGHT, 30, 30))
-        assertEquals("100미터 앞에서 우회전해요", turnSentence(CheckpointType.RIGHT, 100, 30))
+        // 출발하자마자 70m 앞에서 도는 코스: 300m 안내 없이 가까운 안내부터
+        val right = Checkpoint(CheckpointType.RIGHT, "우회전", 70.0, 15.0)
+        val ahead = drive(CourseTracker(course(right)), 20f).filterIsInstance<CourseEvent.Ahead>().map { it.stage }
+        assertEquals(listOf(TurnStage.NEAR, TurnStage.NOW), ahead)
+        assertEquals("지금 우회전해요", turnSentence(CheckpointType.RIGHT, 0, TurnStage.NOW))
+        assertEquals("100미터 앞에서 우회전해요", turnSentence(CheckpointType.RIGHT, 100, TurnStage.NEAR))
+        assertEquals("60미터 앞에서 우회전 뒤 바로 좌회전해요", turnSentence(CheckpointType.RIGHT, 60, TurnStage.NEAR, CheckpointType.LEFT))
     }
 
     @Test
@@ -172,7 +224,7 @@ class CourseTrackerTest {
     fun crosswalkIsGuidanceOnlyAndSpeaksByMode() {
         fun run(mode: CoachMode): Pair<CoachSession, List<String>> {
             val said = ArrayList<String>()
-            val session = CoachSession(mode, say = { said += it }, course = CourseTracker(course(crosswalk)))
+            val session = CoachSession(mode, say = { said += it }, course = CourseTracker(course(crosswalk, turnAtCrosswalk)))
             time = 0
             // 코스 사건은 시험이 시작된 뒤(P에서 D)만 봅니다.
             session.onState(at(0, 0f).copy(gear = Gear.PARK))

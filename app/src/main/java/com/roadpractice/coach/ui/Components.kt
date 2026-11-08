@@ -202,7 +202,8 @@ fun SpeedLimitSign(limitKmh: Int, level: Int, school: Boolean, modifier: Modifie
         ) {
             Text("$limitKmh", style = MaterialTheme.typography.displayMedium, color = text)
         }
-        if (school) Text("어린이보호구역", style = MaterialTheme.typography.labelLarge, color = Road.Ink, modifier = Modifier.padding(top = 6.dp))
+        // 주행 중 글자는 24 이상(Android 차량 앱 지침, 4_개발/안내_레퍼런스.md, 11/8 점검)
+        if (school) Text("어린이보호구역", style = MaterialTheme.typography.titleMedium, color = Road.Ink, modifier = Modifier.padding(top = 6.dp))
     }
 }
 
@@ -215,7 +216,7 @@ fun Tag(text: String, color: Color = Road.Graphite, filled: Boolean = false, lar
         border = if (filled) null else BorderStroke(1.5.dp, color),
     ) {
         Text(
-            text, style = if (large) MaterialTheme.typography.labelLarge else MaterialTheme.typography.labelMedium,
+            text, style = if (large) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelMedium,
             color = if (filled) Road.Sheet else color,
             modifier = Modifier.padding(horizontal = if (large) 20.dp else 14.dp, vertical = if (large) 10.dp else 6.dp),
         )

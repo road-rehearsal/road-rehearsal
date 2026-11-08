@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -60,7 +61,7 @@ data class HomeUi(
 )
 
 @Composable
-fun HomeScreen(ui: HomeUi, onCourse: (Int) -> Unit, onStart: (CoachMode) -> Unit) {
+fun HomeScreen(ui: HomeUi, onCourse: (Int) -> Unit, onStart: (CoachMode) -> Unit, onItems: () -> Unit = {}) {
     val sp = LocalSpacing.current
     if (ui.moving) {
         StopFirst("주행 중에는 설정할 수 없어요", "차를 세운 뒤 모드를 고르세요.")
@@ -81,6 +82,7 @@ fun HomeScreen(ui: HomeUi, onCourse: (Int) -> Unit, onStart: (CoachMode) -> Unit
                 ModeTile("연습", "실수한 순간 한 문장으로 알려 줘요", Road.SignBlue, { onStart(CoachMode.PRACTICE) }, Modifier.weight(1f))
                 ModeTile("시험", "끝날 때까지 말하지 않고, 끝나면 결과표", Road.Ink, { onStart(CoachMode.EXAM) }, Modifier.weight(1f))
             }
+            ItemsButton(onItems, Modifier.fillMaxWidth())
             Text(
                 "연습용 기준이며 공식 채점이 아니에요. 면허 2년이 지난 동승자와 타고, 연습 표지를 붙이고, 보험 범위를 확인해 주세요.",
                 style = MaterialTheme.typography.bodyMedium, color = Road.Graphite,
@@ -201,6 +203,8 @@ data class DrivingUi(
     /** 다음 회전: "LEFT"·"RIGHT"·"UTURN"과 남은 거리(m). 300m 안일 때만. */
     val turnKind: String? = null,
     val turnRemainingM: Int? = null,
+    /** 바로 이어지는 다음 회전("LEFT" 등). 있으면 작은 화살표를 하나 더 띄웁니다(11/8, FHWA 연속 회전). */
+    val turnThen: String? = null,
     /** 직진 구간: 다음 회전(없으면 도착)까지 남은 m. 300m 안에 회전이 있거나 코스를 벗어났으면 null. */
     val straightM: Int? = null,
     /** 직진 뒤 다음 회전 이름("우회전" 등). 남은 회전이 없으면 null(도착까지). */
@@ -209,6 +213,8 @@ data class DrivingUi(
     val zoneSchool: Boolean = false,
     val speedKmh: Float? = null,
 )
+
+private fun turnLabel(kind: String) = when (kind) { "LEFT" -> "좌회전"; "RIGHT" -> "우회전"; else -> "유턴" }
 
 /** 남은 거리 글자: 1km 넘으면 0.1km 단위, 아니면 10m 단위. */
 fun distanceText(m: Int): String = if (m >= 1000) "%.1fkm".format(m / 1000.0) else "${(m / 10) * 10}m"
@@ -254,14 +260,16 @@ fun DrivingScreen(ui: DrivingUi) {
                         TurnArrow(ui.turnKind)
                         Column(Modifier.weight(1f)) {
                             Text(
-                                if (ui.turnRemainingM <= 30) "곧" else "${(ui.turnRemainingM / 10) * 10}m",
+                                if (ui.turnRemainingM <= 30) "지금" else "${(ui.turnRemainingM / 10) * 10}m",
                                 style = MaterialTheme.typography.displayLarge, color = Road.LaneYellow,
                             )
                             Text(
-                                when (ui.turnKind) { "LEFT" -> "좌회전"; "RIGHT" -> "우회전"; else -> "유턴" },
+                                turnLabel(ui.turnKind) + (ui.turnThen?.let { " 뒤 바로 ${turnLabel(it)}" } ?: ""),
                                 style = MaterialTheme.typography.headlineMedium, color = Road.LaneWhite,
                             )
                         }
+                        // 연속 회전이면 다음 화살표를 작게 하나 더(두 번째임을 흐린 색으로)
+                        ui.turnThen?.let { TurnArrow(it, Modifier.size(90.dp), color = Road.LaneWhite.copy(alpha = 0.7f)) }
                     } else if (ui.straightM != null) {
                         // 직진 구간에서도 화살표로 계속 방향을 보여 줍니다(11/7 사용자 요청).
                         TurnArrow("STRAIGHT")

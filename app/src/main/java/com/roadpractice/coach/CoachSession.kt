@@ -30,6 +30,7 @@ class CoachSession(
     fun onState(state: VehicleState): List<ExamEvent> {
         val events = if (ended) ArrayList() else rules.onState(state).toMutableList()
         if (rules.isActive && !ended && events.none { it is ExamEvent.Ended }) events += courseEvents(state)
+        val extra = ArrayList<ExamEvent>()
         events.forEach { event ->
             when (event) {
                 is ExamEvent.Started -> started = true
@@ -37,15 +38,23 @@ class CoachSession(
                 is ExamEvent.Deduction -> {
                     deductions += event.item
                     practiceSay(event.item.sentence, event.timeMs)
+                    // 실격 1) 3회 이상 급브레이크·급출발(11/8). 9·21번 횟수 합계로 보는 근사입니다.
+                    if (event.item in HARD_ITEMS && Disqualification.REPEATED_HARD !in disqualified &&
+                        deductions.count { it in HARD_ITEMS } >= REPEATED_HARD_COUNT
+                    ) {
+                        disqualified += Disqualification.REPEATED_HARD
+                        practiceSay(Disqualification.REPEATED_HARD.sentence, event.timeMs)
+                        extra += ExamEvent.Disqualified(Disqualification.REPEATED_HARD, event.timeMs, speak = false)
+                    }
                 }
                 is ExamEvent.Disqualified -> {
                     disqualified += event.reason
-                    practiceSay(event.reason.sentence, event.timeMs)
+                    if (event.speak) practiceSay(event.reason.sentence, event.timeMs)
                 }
                 is ExamEvent.Guide -> say(event.text)
             }
         }
-        return events
+        return events + extra
     }
 
     /**
@@ -59,15 +68,25 @@ class CoachSession(
             when (e) {
                 is CourseEvent.Ahead -> when {
                     e.checkpoint.type.isTurn ->
-                        ExamEvent.Guide(turnSentence(e.checkpoint.type, e.distanceM, NEAR_TURN_M), e, t)
-                    mode == CoachMode.PRACTICE -> ExamEvent.Guide(e.checkpoint.type.ahead, e, t)
+                        ExamEvent.Guide(turnSentence(e.checkpoint.type, e.distanceM, e.stage, e.then), e, t)
+                    mode == CoachMode.PRACTICE -> ExamEvent.Guide(aheadSentence(e.checkpoint), e, t)
                     else -> null
                 }
                 is CourseEvent.Passed -> e.checkpoint.type.item?.takeIf { !e.ok }?.let { ExamEvent.Deduction(it, t) }
+                // 좌·우회전 지점 서행(37번 1), 11/8)
+                is CourseEvent.TurnNotSlow -> ExamEvent.Deduction(ExamItem.SLOW_DOWN, t)
                 is CourseEvent.ZoneOver -> ExamEvent.Disqualified(
                     if (e.checkpoint.type == CheckpointType.SCHOOL) Disqualification.SCHOOL_ZONE_SPEED else Disqualification.SPEED_OVER,
                     t,
+                    speak = e.checkpoint !in warnedDq,
                 )
+                // 넘는 순간 말합니다(연습 모드만, 11/8 사용자 결정). 시험 모드는 침묵(별표 26 비고 마).
+                is CourseEvent.SpeedOver -> if (mode == CoachMode.PRACTICE) {
+                    if (e.level >= 2) warnedDq += e.checkpoint
+                    ExamEvent.Guide(speedOverSentence(e), e, t)
+                } else {
+                    null
+                }
                 CourseEvent.OffRoute -> ExamEvent.Guide("코스를 벗어났어요. 안전하게 코스로 돌아가요", e, t)
                 is CourseEvent.MissedTurn -> ExamEvent.Guide("${e.checkpoint.type.ahead.removeSuffix("해요")} 지점을 지났어요. 안전하게 코스로 돌아가요", e, t)
                 CourseEvent.BackOnRoute -> ExamEvent.Guide("코스로 돌아왔어요", e, t)
@@ -79,8 +98,28 @@ class CoachSession(
     }
 
     private companion object {
-        /** 이 거리 이하 회전 안내는 "곧 ~해요". CourseThresholds.turnNoticeM의 마지막 값과 같게 둡니다. */
-        const val NEAR_TURN_M = 30
+        val HARD_ITEMS = setOf(ExamItem.HARD_START, ExamItem.HARD_BRAKE)
+        /** 별표 26 실격 1) "3회 이상". */
+        const val REPEATED_HARD_COUNT = 3
+    }
+
+    /** 실격 기준을 넘는 순간 이미 말한 구간(구간을 나갈 때 실격 문장을 또 말하지 않음). */
+    private val warnedDq = HashSet<Checkpoint>()
+
+    private fun speedOverSentence(e: CourseEvent.SpeedOver): String {
+        val limit = e.limitKmh.toInt()
+        return when {
+            e.checkpoint.type == CheckpointType.SCHOOL -> "어린이보호구역 ${limit}을 넘었어요. 시험이면 실격이에요"
+            e.level >= 2 -> "제한속도보다 10km/h 넘게 빨라요. 시험이면 실격이에요"
+            else -> "제한속도 ${limit}을 넘었어요. 속도를 줄여요"
+        }
+    }
+
+    /** 지점 예고 문장. 제한속도·보호구역은 숫자를 함께 말합니다(11/8: 구간이 바뀔 때 무엇으로 바뀌는지 알게). */
+    private fun aheadSentence(cp: Checkpoint): String = when (cp.type) {
+        CheckpointType.SPEED -> cp.limitKmh?.let { "앞으로 제한속도 ${it.toInt()}이에요" } ?: cp.type.ahead
+        CheckpointType.SCHOOL -> "앞에 어린이보호구역이 있어요. ${(cp.limitKmh ?: 30f).toInt()} 이하로 가요"
+        else -> cp.type.ahead
     }
 
     private fun practiceSay(sentence: String, timeMs: Long) {

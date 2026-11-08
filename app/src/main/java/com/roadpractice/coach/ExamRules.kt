@@ -41,13 +41,17 @@ enum class Disqualification(val title: String, val sentence: String) {
 
     /** 코스 자료에 제한속도 구간이 있을 때만 봅니다. 차량 신호의 제한속도는 에뮬레이터에서 0만 옵니다. */
     SPEED_OVER("지정 최고 속도 10km/h 초과", "제한속도를 지켜요"),
+
+    /** 별표 26 실격 1)의 일부: 급브레이크(21)·급출발(9) 합계 3회 이상(11/8). 21번이 일반 정지 끝에도 나올 수 있는 근사입니다. */
+    REPEATED_HARD("3회 이상 급브레이크·급출발", "급출발이나 급제동이 세 번이에요. 시험이면 실격이에요"),
 }
 
 sealed interface ExamEvent {
     val timeMs: Long
 
     data class Deduction(val item: ExamItem, override val timeMs: Long) : ExamEvent
-    data class Disqualified(val reason: Disqualification, override val timeMs: Long) : ExamEvent
+    /** spoken=false: 넘는 순간 이미 말했으므로(연습 모드) 기록만 합니다. */
+    data class Disqualified(val reason: Disqualification, override val timeMs: Long, val speak: Boolean = true) : ExamEvent
     data class Started(override val timeMs: Long) : ExamEvent
     data class Ended(override val timeMs: Long) : ExamEvent
 

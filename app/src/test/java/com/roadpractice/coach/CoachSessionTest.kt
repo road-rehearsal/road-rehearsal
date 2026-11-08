@@ -45,6 +45,27 @@ class CoachSessionTest {
     }
 
     @Test
+    fun threeHardStartsOrBrakesDisqualifyOnce() {
+        // 실격 1) 3회 이상 급브레이크·급출발(11/8): 3번째에 한 번만 실격 기록, 연습 모드는 그때 한 번 말함
+        val spoken = ArrayList<String>()
+        val session = CoachSession(CoachMode.PRACTICE, say = { spoken += it })
+        var s = drive(session).copy(braking = false)
+        var t = 6_000L
+        val speeds = listOf(0f, 0f, 20f, 30f, 30f, 30f, 10f, 10f, 30f, 30f, 30f, 8f, 8f, 30f, 30f, 30f, 5f, 5f)
+        val events = ArrayList<ExamEvent>()
+        for (v in speeds) {
+            t += 1_000
+            s = s.copy(timeMs = t, speedKmh = v)
+            events += session.onState(s)
+        }
+        val hard = session.result.deductions.count { it == ExamItem.HARD_START || it == ExamItem.HARD_BRAKE }
+        assertTrue("급조작 $hard 번", hard >= 3)
+        assertEquals(1, session.result.disqualified.count { it == Disqualification.REPEATED_HARD })
+        assertEquals(1, events.count { it is ExamEvent.Disqualified && it.reason == Disqualification.REPEATED_HARD })
+        assertEquals(1, spoken.count { it == Disqualification.REPEATED_HARD.sentence })
+    }
+
+    @Test
     fun stopsScoringAfterEnd() {
         val session = CoachSession(CoachMode.EXAM, say = {})
         var s = drive(session)

@@ -10,7 +10,7 @@ enum class CheckpointType(val item: ExamItem?, val ahead: String) {
     SLOW(ExamItem.SLOW_DOWN, "앞에 서행 구간이 있어요"),
     STOP(ExamItem.STOP_SIGN, "앞에서 완전히 멈춰야 해요"),
     /** 횡단보도: 안내만 하고 감점하지 않습니다. 43번은 동승자 체크(11/7 사용자 결정). 지날 때 속도는 결과표에 참고로 남깁니다. */
-    CROSSWALK(null, "앞에 횡단보도가 있어요. 보행자를 확인해요"),
+    CROSSWALK(null, "도는 곳에 횡단보도가 있어요. 보행자를 확인해요"),
     UTURN(null, "유턴해요"),
     LEFT(null, "좌회전해요"),
     RIGHT(null, "우회전해요"),
@@ -20,6 +20,9 @@ enum class CheckpointType(val item: ExamItem?, val ahead: String) {
 
     /** 어린이보호구역(limitKmh, 없으면 30). 넘으면 실격(별표 26 실격 사유: 보호구역 최고 속도 초과). */
     SCHOOL(null, "앞에 어린이보호구역이 있어요. 천천히 가요"),
+
+    /** 과속방지턱: 안내만 하고 감점하지 않습니다(별표 26 항목 아님). 지날 때 최고 속도를 결과표에 참고로 남깁니다(11/8 2차 영상). */
+    BUMP(null, "앞에 과속방지턱이 있어요. 속도를 줄여요"),
     ;
 
     /** 길 안내(회전·유턴). 두 모드 모두 말합니다. */
@@ -77,8 +80,35 @@ data class CourseThresholds(
     val windowAhead: Int = 15,
     val doneFraction: Double = 0.98,
     val aheadNoticeM: Double = 80.0,
-    /** 회전 안내 거리(m). 먼 것부터. 마지막 값 이하에서는 "곧"이라고 말합니다(작업 지시 6단계 제안값). */
-    val turnNoticeM: List<Int> = listOf(300, 100, 30),
+    /** 먼 회전 안내 거리(m). 이 안에 들어오면 화면에 회전 화살표를 띄우고 한 번 말합니다. */
+    val farNoticeM: Int = 300,
+    /**
+     * 가까운 회전 안내 거리 = 속도(km/h) × 2.222 + 37.1 m를 이 범위로 자름(11/8).
+     * 근거: FHWA-RD-98-057 5장 "Timing of Auditory Navigation Information"의 최대 거리 식(늦는 것보다 조금 이른 것이 낫다).
+     * 30km/h면 약 100m, 60km/h면 약 170m. 4_개발/안내_레퍼런스.md F3.
+     */
+    val nearMinM: Int = 80,
+    val nearMaxM: Int = 200,
+    /** "지금 ~해요" 안내: 회전까지 이 초 안이거나 nowMinM 안(11/8, FHWA: 급한 안내는 짧게). */
+    val nowSeconds: Double = 3.0,
+    val nowMinM: Int = 30,
+    val nowMaxM: Int = 60,
+    /** 다음 회전이 이 초 안이면 앞 회전과 묶어 한 번에 말합니다(FHWA 5장 "less than 10 seconds apart"). */
+    val stackSeconds: Double = 10.0,
+    /** 속도를 모를 때(정차 등) 묶음·안내 거리 계산에 쓰는 속도. */
+    val assumeKmh: Float = 20f,
+    /** 회전 이 거리 안에서 이 시간 넘게 섰다가 다시 출발하면 한 번 더 안내합니다(11/8 2차 기록: 회전 9개 중 5개가 직전 신호 대기). */
+    val againWithinM: Int = 150,
+    val againStopMs: Long = 10_000,
+    /** 좌·우회전 서행 판정 구간: 회전 지점 앞 turnSlowBeforeM ~ 뒤 turnSlowAfterM의 최저 속도가 slowKmh 이하여야 함(11/8). */
+    val turnSlowBeforeM: Double = 20.0,
+    val turnSlowAfterM: Double = 5.0,
+    /** 횡단보도 예고는 좌·우회전 지점 앞뒤 이 거리 안의 횡단보도만(11/8 사용자 결정). */
+    val crosswalkNearTurnM: Double = 40.0,
+    /** 다시 출발할 때 회전이 이 거리 안이면 "지금"으로 바로 말합니다. */
+    val againAsNowM: Int = 45,
+    val stoppedKmh: Float = 3f,
+    val movingKmh: Float = 8f,
     val slowKmh: Float = 20f,
     val stopKmh: Float = 1f,
     /** 보호구역 제한속도 값이 없을 때(도로교통법상 보통 30km/h). */
@@ -99,12 +129,29 @@ data class CourseThresholds(
 )
 
 sealed interface CourseEvent {
-    /** 지점 예고. 회전 안내는 distanceM(300·100·30)마다 한 번씩 옵니다. */
-    data class Ahead(val checkpoint: Checkpoint, val distanceM: Int = 0) : CourseEvent
+    /**
+     * 지점 예고. 회전은 단계(먼·가까운·지금, 정차 뒤 다시)마다 한 번씩 옵니다.
+     * then: 바로 이어지는 다음 회전(묶음 안내). distanceM: 남은 거리(10m 단위).
+     */
+    data class Ahead(
+        val checkpoint: Checkpoint,
+        val distanceM: Int = 0,
+        val stage: TurnStage = TurnStage.FAR,
+        val then: CheckpointType? = null,
+    ) : CourseEvent
     data class Passed(val checkpoint: Checkpoint, val ok: Boolean, val speedKmh: Float) : CourseEvent
 
-    /** 제한속도·보호구역을 넘었음(구간을 빠져나갈 때 한 번). */
+    /** 제한속도·보호구역을 넘었음(구간을 빠져나갈 때 한 번). 실격 기록은 이것으로 합니다. */
     data class ZoneOver(val checkpoint: Checkpoint, val maxKmh: Float, val limitKmh: Float) : CourseEvent
+
+    /**
+     * 구간 안에서 넘는 순간(11/8 사용자 결정: 넘는 순간 말함). level 1 = 제한속도 넘음, 2 = 실격 기준 넘음
+     * (보호구역은 넘으면 바로 2, 지정 제한속도는 10km/h 넘게). 구간마다 단계별로 한 번씩.
+     */
+    data class SpeedOver(val checkpoint: Checkpoint, val kmh: Float, val limitKmh: Float, val level: Int) : CourseEvent
+
+    /** 좌·우회전 지점에서 서행하지 않음(별표 26 37번 1) "좌회전 또는 우회전이 필요한 도로"). minKmh: 지점 앞뒤 최저 속도. */
+    data class TurnNotSlow(val checkpoint: Checkpoint, val minKmh: Float, val limitKmh: Float) : CourseEvent
 
     /** 돌아야 할 곳을 지나쳤음(회전 지점 근처에서 코스 선과 멀어짐). */
     data class MissedTurn(val checkpoint: Checkpoint) : CourseEvent
@@ -130,12 +177,28 @@ data class PointResult(val type: CheckpointType, val name: String, val ok: Boole
     }
 }
 
-/** 화면에 띄울 다음 회전. */
-data class NextTurn(val type: CheckpointType, val remainingM: Int)
+/** 회전 안내 단계. AGAIN은 회전 앞에서 오래 섰다가 출발할 때 한 번 더 하는 안내. */
+enum class TurnStage { FAR, NEAR, NOW, AGAIN }
 
-/** 회전 안내 문장. */
-fun turnSentence(type: CheckpointType, distanceM: Int, nearM: Int): String =
-    if (distanceM <= nearM) "곧 ${type.ahead}" else "${distanceM}미터 앞에서 ${type.ahead}"
+/** 화면에 띄울 다음 회전. then이 있으면 바로 이어지는 회전(화살표 두 개). */
+data class NextTurn(val type: CheckpointType, val remainingM: Int, val then: CheckpointType? = null)
+
+/** 회전 이름("좌회전" 등). */
+val CheckpointType.turnName: String get() = ahead.removeSuffix("해요")
+
+/** 회전 안내 문장. NOW는 짧게 "지금 ~해요", 묶음이면 "~ 뒤 바로 ~해요". */
+fun turnSentence(type: CheckpointType, distanceM: Int, stage: TurnStage, then: CheckpointType? = null): String {
+    val what = if (then != null) "${type.turnName} 뒤 바로 ${then.ahead}" else type.ahead
+    return if (stage == TurnStage.NOW) "지금 $what" else "${distanceM}미터 앞에서 $what"
+}
+
+/** 속도에 따른 가까운 안내 거리(m, 10m 단위). */
+fun nearNoticeM(kmh: Float, t: CourseThresholds): Int =
+    ((2.222 * kmh + 37.1) / 10).toInt().times(10).coerceIn(t.nearMinM, t.nearMaxM)
+
+/** 속도에 따른 "지금" 안내 거리(m). */
+fun nowNoticeM(kmh: Float, t: CourseThresholds): Int =
+    (kmh / 3.6 * t.nowSeconds).toInt().coerceIn(t.nowMinM, t.nowMaxM)
 
 /**
  * 위치로 코스 진행을 따라갑니다. 지금 위치에서 앞쪽 몇 개 점만 찾으므로 되돌아오는 길과 섞이지 않습니다.
@@ -147,7 +210,21 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
     private var off = false
     private var lastTenth = -1
     private val announced = HashSet<Int>()
-    private val turnLevels = HashMap<Int, Int>()
+
+    /** 회전별로 마지막에 말한 단계(FAR·NEAR·NOW). */
+    private val turnStages = HashMap<Int, TurnStage>()
+
+    /** 앞 회전과 묶어 이미 말한 회전: 먼·가까운 안내 없이 "지금"만 합니다. */
+    private val stacked = HashSet<Int>()
+    private val againDone = HashSet<Int>()
+
+    /** 좌·우회전 지점 앞뒤 구간의 최저 속도(서행 판정). */
+    private val turnMin = HashMap<Int, Float>()
+
+    /** 구간별로 이미 알린 속도 초과 단계(1·2). */
+    private val overLevels = HashMap<Int, Int>()
+    private var stoppedSinceMs = -1L
+    private var lastKmh = 0f
     private val judged = HashSet<Int>()
     private val turnHeard = HashMap<Int, ArrayList<Int>>()
     private val results = ArrayList<PointResult>()
@@ -212,13 +289,15 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
         idx = best
         alongM = maxOf(alongM, course.cumM[idx])
         val kmh = s.speedKmh ?: 0f
+        lastKmh = kmh
+        againAfterStop(s.timeMs, kmh, out)
         if (alongM - prevAlong > t.maxJumpM) {
             // 건너뛴 구간의 지점은 판정·안내하지 않고 넘어갑니다.
             course.checkpoints.forEachIndexed { i, cp ->
                 if (cp.atM < alongM) {
                     judged += i
                     announced += i
-                    turnLevels[i] = 0
+                    turnStages[i] = TurnStage.NOW
                 }
             }
             zones.clear()
@@ -229,7 +308,10 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
             lastTenth = tenth
             out += CourseEvent.Progress(fraction)
         }
-        if (fraction >= t.doneFraction) {
+        // 끝 근처에 아직 돌지 않은 회전이 있으면 그 회전을 지날 때까지 완주로 보지 않습니다
+        // (11/8 2차 재생: 마지막 연속 회전 직전에 "코스를 다 돌았어요"가 나옴).
+        val turnPending = course.checkpoints.withIndex().any { (i, c) -> c.type.isTurn && i !in judged }
+        if (fraction >= t.doneFraction && (!turnPending || alongM >= course.lengthM - TURN_DONE_M)) {
             done = true
             // 코스 끝까지 이어진 구간(예: 보호구역이 도착 근처까지)은 빠져나가기 전에 끝나므로 여기서 판정합니다(11/7 재생에서 찾음).
             course.checkpoints.forEachIndexed { i, cp ->
@@ -275,14 +357,57 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
         return true
     }
 
-    /** 지금 보여 줄 다음 회전(안내 거리 300m 안). 없으면 null. */
+    /** 지금 보여 줄 다음 회전(먼 안내 거리 안). 바로 이어지는 회전이 있으면 then에 넣습니다. 없으면 null. */
     fun nextTurn(): NextTurn? {
         if (!onCourse || done) return null
-        val cp = course.checkpoints.withIndex()
+        val (i, cp) = course.checkpoints.withIndex()
             .filter { (i, c) -> c.type.isTurn && i !in judged && c.atM > alongM }
-            .minByOrNull { it.value.atM }?.value ?: return null
+            .minByOrNull { it.value.atM } ?: return null
         val remaining = (cp.atM - alongM).toInt()
-        return if (remaining <= (t.turnNoticeM.maxOrNull() ?: 300)) NextTurn(cp.type, remaining) else null
+        // 음성에서 이미 묶어 말한 회전은 화면에도 계속 두 개로 보여 줍니다(속도가 줄어 다시 계산하면 풀리는 일 방지, 11/8 에뮬레이터)
+        val then = course.checkpoints.withIndex()
+            .filter { (j, c) -> j != i && c.type.isTurn && c.atM > cp.atM }
+            .minByOrNull { it.value.atM }
+            ?.takeIf { it.index in stacked } ?: stackedNext(i, lastKmh)
+        return if (remaining <= t.farNoticeM) NextTurn(cp.type, remaining, then?.value?.type) else null
+    }
+
+    /** i번 회전 바로 뒤(stackSeconds 안)에 이어지는 다음 회전. */
+    private fun stackedNext(i: Int, kmh: Float): IndexedValue<Checkpoint>? {
+        val cp = course.checkpoints[i]
+        val next = course.checkpoints.withIndex()
+            .filter { (j, c) -> j != i && c.type.isTurn && c.atM > cp.atM }
+            .minByOrNull { it.value.atM } ?: return null
+        val mps = maxOf(kmh, t.assumeKmh) / 3.6
+        return next.takeIf { it.value.atM - cp.atM <= mps * t.stackSeconds }
+    }
+
+    /**
+     * 회전 앞에서 againStopMs 넘게 섰다가(신호 대기) 다시 출발하면, 이미 안내한 회전을 한 번 더 말합니다.
+     * 차량 속도 신호로 정차·출발을 봅니다(위치보다 빠르고 정확).
+     */
+    private fun againAfterStop(nowMs: Long, kmh: Float, out: MutableList<CourseEvent>) {
+        if (kmh < t.stoppedKmh) {
+            if (stoppedSinceMs < 0) stoppedSinceMs = nowMs
+            return
+        }
+        val since = stoppedSinceMs
+        if (kmh < t.movingKmh) return
+        stoppedSinceMs = -1
+        if (since < 0 || nowMs - since < t.againStopMs) return
+        val (i, cp) = course.checkpoints.withIndex()
+            .filter { (j, c) -> c.type.isTurn && j !in judged && c.atM > alongM }
+            .minByOrNull { it.value.atM } ?: return
+        val remaining = cp.atM - alongM
+        if (remaining > t.againWithinM || i in againDone || turnStages[i] == null) return
+        againDone += i
+        // 곧 돌 거리면 다시 안내 대신 바로 "지금"(11/8 재생: "30미터 앞" 직후 "지금"이 겹침)
+        val now = remaining <= maxOf(nowNoticeM(kmh, t), t.againAsNowM)
+        if (now) turnStages[i] = TurnStage.NOW
+        val stage = if (now) TurnStage.NOW else TurnStage.AGAIN
+        val then = stackedNext(i, kmh)
+        then?.let { stacked += it.index }
+        out += CourseEvent.Ahead(cp, (remaining / 10).toInt() * 10, stage, then?.value?.type)
     }
 
     /**
@@ -310,21 +435,42 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
     }
 
     private fun checkpoints(prevAlong: Double, kmh: Float, out: MutableList<CourseEvent>) {
+        // 한 번에 여러 지점 예고가 몰리면(코스에 막 들어왔을 때 등) 가장 가까운 하나만 말합니다(11/8 2차 재생: 4개가 한꺼번에).
+        // 나머지도 예고한 것으로 쳐서 나중에 늦게 나오지 않게 합니다. FHWA: 한 번에 줄 정보는 3~4개 이하.
+        var aheadSaid = false
         course.checkpoints.forEachIndexed { i, cp ->
             if (cp.type.isTurn) {
-                announceTurn(i, cp, out)
+                announceTurn(i, cp, kmh, out)
+                val slowJudged = cp.type == CheckpointType.LEFT || cp.type == CheckpointType.RIGHT
+                val wFrom = cp.atM - t.turnSlowBeforeM
+                val wTo = cp.atM + t.turnSlowAfterM
+                // 구간 안에 위치가 들어왔거나, 한 번에 구간을 건너뛰었으면(위치 1초 간격·빠른 속도) 그때 속도로 봅니다
+                if (slowJudged && i !in judged && (alongM in wFrom..wTo || (prevAlong < wFrom && alongM > wTo))) {
+                    turnMin[i] = minOf(turnMin[i] ?: Float.MAX_VALUE, kmh)
+                }
                 // 회전 지점을 10m 넘게 지나면 회전한 것으로 기록합니다(놓쳤으면 checkMissedTurn에서 먼저 기록됨).
                 if (i !in judged && alongM > cp.atM + TURN_DONE_M) {
                     judged += i
                     val heard = turnHeard[i].orEmpty()
-                    results += PointResult(cp.type, cp.name, true, if (heard.isEmpty()) "안내 없음" else "안내 " + heard.joinToString("·") { "${it}m" })
+                    val guide = if (heard.isEmpty()) "안내 없음" else "안내 " + heard.joinToString("·") { "${it}m" }
+                    // 좌·우회전 서행(37번 1)). 구간 안 위치가 하나도 없으면(건너뜀) 판정하지 않습니다.
+                    val min = turnMin.remove(i)
+                    val notSlow = min != null && min > t.slowKmh
+                    if (notSlow) out += CourseEvent.TurnNotSlow(cp, min!!, t.slowKmh)
+                    val slowText = min?.let { " · 최저 ${it.toInt()}km/h" + if (notSlow) " (서행 ${t.slowKmh.toInt()} 넘음)" else "" } ?: ""
+                    results += PointResult(cp.type, cp.name, !notSlow, guide + slowText)
                 }
                 return@forEachIndexed
             }
             val start = cp.atM - cp.radiusM
             if (i !in announced && alongM >= start - t.aheadNoticeM && alongM < cp.atM) {
                 announced += i
-                out += CourseEvent.Ahead(cp, (start - alongM).coerceAtLeast(0.0).toInt())
+                // 횡단보도는 좌·우회전 지점에 있을 때만 예고합니다(직진 중 횡단보도는 신호대로 지나면 됨, 11/8 사용자 결정)
+                val say = cp.type != CheckpointType.CROSSWALK || crosswalkAtTurn(cp)
+                if (say && !aheadSaid) {
+                    out += CourseEvent.Ahead(cp, (start - alongM).coerceAtLeast(0.0).toInt())
+                    aheadSaid = true
+                }
             }
             if (i in judged) return@forEachIndexed
             // 멈춤 지점은 지점 앞쪽만, 구간 지점은 앞뒤를 봅니다.
@@ -335,6 +481,7 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
                 val z = zones.getOrPut(i) { floatArrayOf(Float.MAX_VALUE, 0f) }
                 z[0] = minOf(z[0], kmh)
                 z[1] = maxOf(z[1], kmh)
+                if (inside) speedOverNow(i, cp, kmh, out)
             }
             val z = zones[i]
             if (z != null && alongM > end) {
@@ -346,6 +493,7 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
                     // 횡단보도는 판정하지 않고(ok=null) 참고로 속도만 남깁니다. 43번은 동승자 체크.
                     CheckpointType.CROSSWALK ->
                         PointResult(cp.type, cp.name, null, if (z[0] < t.stopKmh) "멈춤 (참고)" else "최저 ${z[0].toInt()}km/h (참고)")
+                    CheckpointType.BUMP -> PointResult(cp.type, cp.name, null, "최고 ${z[1].toInt()}km/h (참고)")
                     CheckpointType.STOP ->
                         PointResult(cp.type, cp.name, (e as? CourseEvent.Passed)?.ok, if (z[0] < t.stopKmh) "멈춤" else "최저 ${z[0].toInt()}km/h")
                     else -> {
@@ -354,6 +502,29 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
                     }
                 }
             }
+        }
+    }
+
+    /** 이 횡단보도가 좌·우회전 지점 앞뒤 crosswalkNearTurnM 안에 있는가. */
+    private fun crosswalkAtTurn(cp: Checkpoint): Boolean = course.checkpoints.any {
+        (it.type == CheckpointType.LEFT || it.type == CheckpointType.RIGHT) && kotlin.math.abs(it.atM - cp.atM) <= t.crosswalkNearTurnM
+    }
+
+    /** 제한속도·보호구역 구간 안에서 넘는 순간 단계별로 한 번씩 알립니다. 판정(실격)은 구간을 나갈 때 그대로 합니다. */
+    private fun speedOverNow(i: Int, cp: Checkpoint, kmh: Float, out: MutableList<CourseEvent>) {
+        val limit = when (cp.type) {
+            CheckpointType.SCHOOL -> cp.limitKmh ?: t.schoolKmh
+            CheckpointType.SPEED -> cp.limitKmh ?: return
+            else -> return
+        }
+        val level = when {
+            kmh <= limit -> 0
+            cp.type == CheckpointType.SCHOOL || kmh > limit + t.speedOverKmh -> 2
+            else -> 1
+        }
+        if (level > (overLevels[i] ?: 0)) {
+            overLevels[i] = level
+            out += CourseEvent.SpeedOver(cp, kmh, limit, level)
         }
     }
 
@@ -375,20 +546,37 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
     }
 
     /**
-     * 회전까지 남은 거리가 안내 거리(300·100·30)를 지날 때마다 한 번씩. 이미 가까우면 먼 안내는 건너뜁니다.
+     * 회전 안내: 먼(300m)·가까운(속도에 따라 80~200m)·지금(약 3초 앞) 단계를 지날 때마다 한 번씩. 이미 가까우면 앞 단계는 건너뜁니다.
      * 앞 회전을 다 돌기 전에는 다음 회전을 말하지 않습니다(11/7 재생: "곧 우회전" 직후 다음 회전 "300미터"가 겹쳐 헷갈림).
+     * 다음 회전이 10초 안이면 함께 말하고(묶음), 그 회전은 나중에 "지금"만 말합니다(11/8, FHWA 5장).
      */
-    private fun announceTurn(i: Int, cp: Checkpoint, out: MutableList<CourseEvent>) {
+    private fun announceTurn(i: Int, cp: Checkpoint, kmh: Float, out: MutableList<CourseEvent>) {
         val remaining = cp.atM - alongM
         if (remaining <= 0) return
         val earlierPending = course.checkpoints.any { o -> o.type.isTurn && o.atM < cp.atM && o.atM > alongM }
         if (earlierPending) return
-        val level = t.turnNoticeM.filter { remaining <= it }.minOrNull() ?: return
-        val last = turnLevels[i]
-        if (last != null && last <= level) return
-        turnLevels[i] = level
-        turnHeard.getOrPut(i) { ArrayList() } += level
-        out += CourseEvent.Ahead(cp, level)
+        val v = if (kmh < t.stoppedKmh) t.assumeKmh else kmh
+        val nearM = nearNoticeM(v, t)
+        val nowM = nowNoticeM(v, t)
+        val stage = when {
+            remaining <= nowM -> TurnStage.NOW
+            remaining <= nearM -> TurnStage.NEAR
+            remaining <= t.farNoticeM -> TurnStage.FAR
+            else -> return
+        }
+        if (i in stacked && stage != TurnStage.NOW) return
+        val last = turnStages[i]
+        if (last != null && last.ordinal >= stage.ordinal) return
+        turnStages[i] = stage
+        val dist = when (stage) {
+            TurnStage.FAR -> t.farNoticeM
+            TurnStage.NOW -> 0
+            else -> (remaining / 10).toInt() * 10
+        }
+        turnHeard.getOrPut(i) { ArrayList() } += if (stage == TurnStage.NOW) nowM else dist
+        val then = if (i in stacked) null else stackedNext(i, v)
+        then?.let { stacked += it.index }
+        out += CourseEvent.Ahead(cp, dist, stage, then?.value?.type)
     }
 
     private companion object {

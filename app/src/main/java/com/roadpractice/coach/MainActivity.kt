@@ -146,6 +146,7 @@ class MainActivity : ComponentActivity() {
                     replaying = s.replaying,
                     turnKind = s.nextTurn?.type?.name,
                     turnRemainingM = s.nextTurn?.remainingM,
+                    turnThen = s.nextTurn?.then?.name,
                     straightM = s.straight?.first,
                     straightNext = s.straight?.let { st ->
                         when (st.second) {
@@ -201,10 +202,19 @@ class MainActivity : ComponentActivity() {
         val often = remember(version) {
             log.carItemCounts().entries.sortedByDescending { it.value }.take(OFTEN_LIMIT).map { it.key.title to it.value }
         }
+        // 전체 채점 항목 보기(11/8). 정차 중에만: 주행이 시작되면 HomeScreen이 "주행 중에는 설정할 수 없어요"로 바뀌며 닫힙니다.
+        var showItems by rememberSaveable { mutableStateOf(false) }
+        if (showItems && !moving) {
+            androidx.activity.compose.BackHandler { showItems = false }
+            com.roadpractice.coach.ui.ItemsScreen(onBack = { showItems = false })
+            return
+        }
+        androidx.compose.runtime.LaunchedEffect(moving) { if (moving) showItems = false }
         HomeScreen(
             HomeUi(options, choice, runs, often, moving),
             onCourse = { choice = it },
             onStart = { mode -> CoachService.start(this, mode, pickCourse(choice)) },
+            onItems = { showItems = true },
         )
     }
 
