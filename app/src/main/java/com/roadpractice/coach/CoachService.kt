@@ -54,7 +54,22 @@ class CoachService : Service() {
             hub?.stop()
             hub = null
             val file = java.io.File(filesDir, replayName)
-            replay = ReplaySource(file, intent.getIntExtra(EXTRA_REPLAY_SPEED, 1)) { onVehicleState(it) }.also { it.start() }
+            val mixed = intent.getBooleanExtra(EXTRA_REPLAY_MIXED, false)
+            val from = intent.getIntExtra(EXTRA_REPLAY_FROM, 0)
+            val to = intent.getIntExtra(EXTRA_REPLAY_TO, Int.MAX_VALUE)
+            // 섞기 모드(11/8): 차량 신호(조작판)를 켜 두고, 그 값은 재생 값과 합칠 때만 씁니다(판정으로 바로 보내지 않음).
+            if (mixed) hub = SignalHub(applicationContext) { replay?.liveChanged() }.also { it.start() }
+            replay = ReplaySource(
+                file, intent.getIntExtra(EXTRA_REPLAY_SPEED, 1), { onVehicleState(it) },
+                fromS = from, toS = to, live = if (mixed) ({ hub?.state }) else null,
+                // 구간 재생이면 코스를 중간에서 잡고(기록 거리로 같은 방향 쪽 코스 선을 고름), 가장자리 출발은 보지 않습니다
+                onStartDist = { d ->
+                    session?.course?.midStartHintM = d
+                    // 길가 출발 시연(12·13번)이면 가장자리 출발 판정을 그대로 둡니다
+                    if (!intent.getBooleanExtra(EXTRA_REPLAY_EDGE, false)) session?.startMidRoad()
+                },
+                holdS = intent.getIntExtra(EXTRA_REPLAY_HOLD, 0),
+            ).also { it.start() }
         } else if (hub == null) {
             hub = SignalHub(applicationContext) { onVehicleState(it) }.also { it.start() }
         }
@@ -226,6 +241,11 @@ class CoachService : Service() {
         /** 시연용 재생 파일 이름(앱 파일 폴더 filesDir 안). 디버그 빌드에서만 씁니다. */
         const val EXTRA_REPLAY = "replay"
         const val EXTRA_REPLAY_SPEED = "replaySpeed"
+        const val EXTRA_REPLAY_FROM = "replayFrom"
+        const val EXTRA_REPLAY_TO = "replayTo"
+        const val EXTRA_REPLAY_MIXED = "replayMixed"
+        const val EXTRA_REPLAY_HOLD = "replayHold"
+        const val EXTRA_REPLAY_EDGE = "replayEdge"
         const val NO_RUN = -1L
 
         /** 화면이 다시 켜졌을 때 바로 보여 줄 마지막 상황. */
@@ -236,10 +256,16 @@ class CoachService : Service() {
         /** 메인 스레드에서 호출됩니다. null은 서비스가 멈췄다는 뜻입니다. */
         var listener: ((Snapshot?) -> Unit)? = null
 
-        fun start(context: Context, mode: CoachMode, courseId: String? = null, replay: String? = null, replaySpeed: Int = 1) {
+        fun start(
+            context: Context, mode: CoachMode, courseId: String? = null, replay: String? = null, replaySpeed: Int = 1,
+            replayFrom: Int = 0, replayTo: Int = Int.MAX_VALUE, replayMixed: Boolean = false,
+            replayHold: Int = 0, replayEdge: Boolean = false,
+        ) {
             context.startForegroundService(
                 Intent(context, CoachService::class.java).putExtra(EXTRA_MODE, mode.name).putExtra(EXTRA_COURSE, courseId)
-                    .putExtra(EXTRA_REPLAY, replay).putExtra(EXTRA_REPLAY_SPEED, replaySpeed),
+                    .putExtra(EXTRA_REPLAY, replay).putExtra(EXTRA_REPLAY_SPEED, replaySpeed)
+                    .putExtra(EXTRA_REPLAY_FROM, replayFrom).putExtra(EXTRA_REPLAY_TO, replayTo).putExtra(EXTRA_REPLAY_MIXED, replayMixed)
+                    .putExtra(EXTRA_REPLAY_HOLD, replayHold).putExtra(EXTRA_REPLAY_EDGE, replayEdge),
             )
         }
 

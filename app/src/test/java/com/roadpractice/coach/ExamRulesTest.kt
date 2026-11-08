@@ -449,6 +449,68 @@ class ExamRulesTest {
     }
 
     @Test
+    fun preSteeredPullAwayStillNeedsSignal() {
+        // 11/8 Codex 점검 2: 길가에서 서서 핸들을 먼저 꺾고 깜빡이 없이 출발 → 11번
+        put(s)
+        change { it.copy(gear = Gear.DRIVE, braking = false) }
+        change { it.copy(timeMs = it.timeMs + 500, steeringAbsDeg = 60f) }
+        var v = 0f
+        while (v < 10f) {
+            v += 1f
+            change { it.copy(timeMs = it.timeMs + 500, speedKmh = v) }
+        }
+        assertTrue(ExamItem.EDGE_NO_SIGNAL in items)
+    }
+
+    @Test
+    fun preSteeredTurnFromStopStillNeedsSignal() {
+        // 교차로에서 서서 먼저 꺾고 깜빡이 없이 출발 → 30번
+        startDriving()
+        passEdge()
+        var v = 20f
+        while (v > 0f) {
+            v -= 2f
+            change { it.copy(timeMs = it.timeMs + 500, speedKmh = v.coerceAtLeast(0f)) }
+        }
+        change { it.copy(timeMs = it.timeMs + 500, steeringAbsDeg = 60f) }
+        items.clear()
+        while (v < 10f) {
+            v += 1f
+            change { it.copy(timeMs = it.timeMs + 500, speedKmh = v) }
+        }
+        assertTrue(ExamItem.TURN_NO_SIGNAL in items)
+    }
+
+    @Test
+    fun changingSignalDirectionRestartsLeadDistance() {
+        // 11/8 Codex 점검 5: 왼쪽으로 30m 넘게 켰다가 오른쪽으로 바꾼 직후 돌면 31번
+        startDriving()
+        passEdge()
+        change { it.copy(turnSignal = TurnSignal.LEFT) }
+        run(6_000)
+        change { it.copy(turnSignal = TurnSignal.RIGHT) }
+        run(100)
+        items.clear()
+        change { it.copy(steeringAbsDeg = 60f) }
+        run(200)
+        assertTrue(ExamItem.SIGNAL_LATE in items)
+    }
+
+    @Test
+    fun alreadyInDriveWaitsForPark() {
+        // 11/8 사용자 결정 (가): D로 켜지면 자동 시작하지 않고 P를 거쳐야 시작
+        val r = ExamRules()
+        r.onState(VehicleState(timeMs = 0, gear = Gear.DRIVE, speedKmh = 0f))
+        r.onState(VehicleState(timeMs = 1_000, gear = Gear.DRIVE, speedKmh = 10f))
+        assertFalse(r.isActive)
+        assertTrue(r.needsPark)
+        r.onState(VehicleState(timeMs = 2_000, gear = Gear.PARK, speedKmh = 0f))
+        r.onState(VehicleState(timeMs = 3_000, gear = Gear.DRIVE, speedKmh = 0f))
+        assertTrue(r.isActive)
+        assertFalse(r.needsPark)
+    }
+
+    @Test
     fun scoreDoesNotGoBelowZero() {
         assertEquals(0, ExamResult(List(20) { ExamItem.PARKING_BRAKE }, emptyList()).score)
     }

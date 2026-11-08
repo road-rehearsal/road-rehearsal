@@ -18,6 +18,8 @@ fun interface Speaker {
 /**
  * 음성을 한 번에 하나만 냅니다. 겹치면 앞 음성이 끊기는 것으로 보여(실측, 추정) 순서를 지킵니다.
  * 밀리면 오래된 문장을 버립니다. 지난 일을 뒤늦게 말하지 않기 위해서입니다.
+ * 회전 안내는 마지막까지 남깁니다(11/8 재생: 출발 직후 감점 문장에 밀려 "40미터 앞에서 우회전해요"·"지금 우회전해요"가 버려짐).
+ * 새 회전 안내가 오면 아직 말하지 않은 앞 단계 회전 안내는 버리고("40미터 앞" 대신 "지금"만), 기다리는 문장 맨 앞에 둡니다.
  */
 class SpeechQueue(private val speaker: Speaker, private val maxPending: Int = 2) {
     private val pending = ArrayDeque<String>()
@@ -25,8 +27,18 @@ class SpeechQueue(private val speaker: Speaker, private val maxPending: Int = 2)
 
     fun say(text: String) {
         if (text in pending) return
-        pending.addLast(text)
-        while (pending.size > maxPending) pending.removeFirst()
+        if (isTurnGuide(text)) {
+            pending.removeAll { isTurnGuide(it) }
+            // 회전 안내는 기다리는 다른 문장보다 먼저 말합니다(11/8 Codex 점검 7: "지금 우회전"이 보호구역 예고 뒤로 밀려 5.8초 늦음).
+            // 말하고 있는 문장은 끊지 않습니다(Pleos TTS에서 끊었을 때의 동작은 미확인).
+            pending.addFirst(text)
+        } else {
+            pending.addLast(text)
+        }
+        while (pending.size > maxPending) {
+            val drop = pending.indexOfFirst { !isTurnGuide(it) }
+            if (drop >= 0) pending.removeAt(drop) else pending.removeFirst()
+        }
         next()
     }
 
@@ -44,6 +56,13 @@ class SpeechQueue(private val speaker: Speaker, private val maxPending: Int = 2)
                 next()
             }
         }
+    }
+
+    companion object {
+        private val TURN = Regex("(좌회전|우회전|유턴)(해요| 뒤)")
+
+        /** 회전 안내 문장인가("300미터 앞에서 좌회전해요", "지금 우회전 뒤 바로 좌회전해요"). "좌회전 지점을 지났어요"는 아님. */
+        fun isTurnGuide(text: String) = TURN.containsMatchIn(text)
     }
 }
 

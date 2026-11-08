@@ -88,7 +88,14 @@ class SignalHub(private val context: Context, private val onChange: (VehicleStat
     private val tick = object : Runnable {
         override fun run() {
             if (!running) return
-            update { it.copy(timeMs = SystemClock.elapsedRealtime()) }
+            val now = SystemClock.elapsedRealtime()
+            // 속도가 끊기면 마지막 값을 계속 쓰지 않고 "값 없음"으로 둡니다. 값 없음으로는 감점하지 않습니다
+            // (11/8 Codex 점검 6: 마지막 속도 0으로 정지 판정과 10초·3초 타이머가 계속 흘렀음)
+            if (state.speedKmh != null && isStale(now, lastSpeedAt, SPEED_STALE_MS)) {
+                Log.w(TAG, "SPEED_STALE ${now - lastSpeedAt}ms")
+                update { it.copy(speedKmh = null) }
+            }
+            update { it.copy(timeMs = now) }
             main.postDelayed(this, TICK_MS)
         }
     }
@@ -162,6 +169,7 @@ class SignalHub(private val context: Context, private val onChange: (VehicleStat
             }
             override fun onErrorEvent(propertyId: Int, zone: Int) {
                 Log.w(TAG, "speed error")
+                onMain { update { it.copy(speedKmh = null) } }
             }
         }, VehiclePropertyIds.PERF_VEHICLE_SPEED, SPEED_RATE_HZ)
     }
@@ -170,7 +178,8 @@ class SignalHub(private val context: Context, private val onChange: (VehicleStat
         val now = SystemClock.elapsedRealtime()
         update { s ->
             val before = s.speedKmh ?: kmh
-            val added = if (lastSpeedAt > 0) distanceMeters(before, kmh, now - lastSpeedAt) else 0.0
+            // 끊겼다 다시 오면 끊긴 동안의 거리는 모르므로 더하지 않습니다
+            val added = if (lastSpeedAt > 0 && !isStale(now, lastSpeedAt, SPEED_STALE_MS)) distanceMeters(before, kmh, now - lastSpeedAt) else 0.0
             s.copy(speedKmh = kmh, distanceM = s.distanceM + added)
         }
         lastSpeedAt = now
@@ -210,6 +219,12 @@ class SignalHub(private val context: Context, private val onChange: (VehicleStat
         private const val MPS_TO_KMH = 3.6f
         private const val SPEED_RATE_HZ = 10f
         private const val TICK_MS = 200L
+
+        /** 속도(PERF_VEHICLE_SPEED, 10Hz 요청·에뮬레이터 실측 약 6.4Hz)가 이만큼 안 오면 끊긴 것으로 봅니다(제안값). */
+        const val SPEED_STALE_MS = 2_000L
+
+        /** 마지막 속도를 받은 지 staleMs가 지났는가. 아직 한 번도 못 받았으면(lastAt=0) 아님. */
+        fun isStale(nowMs: Long, lastAtMs: Long, staleMs: Long): Boolean = lastAtMs > 0 && nowMs - lastAtMs > staleMs
 
         fun mapGear(g: VehicleGear?): Gear = when (g) {
             VehicleGear.GEAR_PARK -> Gear.PARK

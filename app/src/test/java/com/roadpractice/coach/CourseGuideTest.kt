@@ -208,7 +208,8 @@ class CourseGuideTest {
 
     @Test
     fun burstOfNoticesSpeaksOnlyNearest() {
-        // 코스에 들어오자마자 앞쪽 지점 3개가 한꺼번에 예고 범위에 들어오면 하나만 말합니다
+        // 코스에 들어오자마자 앞쪽 지점 여러 개가 한꺼번에 예고 범위에 들어오면 지점 예고는 가장 가까운 하나만 말합니다.
+        // 제한속도·보호구역 예고는 따로 말합니다(11/8 사용자 지적: 방지턱 예고에 밀려 보호구역 예고가 사라졌음)
         val cps = listOf(
             Checkpoint(CheckpointType.BUMP, "과속방지턱", 40.0, 10.0),
             Checkpoint(CheckpointType.CROSSWALK, "횡단보도", 60.0, 30.0),
@@ -216,8 +217,7 @@ class CourseGuideTest {
         )
         val tr = CourseTracker(Course("b", "B", latL, lngL, cps))
         val first = tr.onState(at(latL[0], lngL[0], 20f)).filterIsInstance<CourseEvent.Ahead>()
-        assertEquals(1, first.size)
-        assertEquals(CheckpointType.BUMP, first.single().checkpoint.type)
+        assertEquals(listOf(CheckpointType.BUMP, CheckpointType.SCHOOL), first.map { it.checkpoint.type })
         // 나머지는 나중에 늦게 나오지 않습니다
         val later = (1 until 10).flatMap { k -> tr.onState(at(latL[k], lngL[k], 20f)) }.filterIsInstance<CourseEvent.Ahead>()
         assertTrue(later.isEmpty())
@@ -249,6 +249,18 @@ class CourseGuideTest {
         val tr = CourseTracker(Course("u", "U", lat, lng, listOf(u)))
         val events = lat.indices.flatMap { k -> tr.onState(at(lat[k], lng[k], 30f)) }
         assertTrue(events.none { it is CourseEvent.TurnNotSlow })
+    }
+
+    @Test
+    fun steeringFromYawSeesTurns() {
+        // 시연 섞기 모드: 기록 자이로로 만든 핸들 각. 15km/h 90도 회전(약 0.3rad/s)은 크게, 직진 흔들림(0.02)은 작게
+        val turn = ReplaySource.steeringFromYaw(0.3f, 15f)!!
+        val straight = ReplaySource.steeringFromYaw(0.02f, 40f)!!
+        assertTrue("회전 $turn", turn > 90f)
+        assertTrue("직진 $straight", straight < 10f)
+        assertNull(ReplaySource.steeringFromYaw(null, 20f))
+        // 서 있을 때 자이로 잡음은 회전이 아님(11/8 리허설에서 출발 전이 회전으로 잡힘)
+        assertEquals(0f, ReplaySource.steeringFromYaw(0.3f, 0f)!!, 0f)
     }
 
     @Test

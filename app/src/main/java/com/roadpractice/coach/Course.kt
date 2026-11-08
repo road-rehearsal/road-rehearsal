@@ -223,6 +223,8 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
 
     /** 구간별로 이미 알린 속도 초과 단계(1·2). */
     private val overLevels = HashMap<Int, Int>()
+    /** 넘는 순간 이미 실격을 낸 구간(나갈 때 다시 내지 않음). */
+    private val zoneDq = HashSet<Int>()
     private var stoppedSinceMs = -1L
     private var lastKmh = 0f
     private val judged = HashSet<Int>()
@@ -242,11 +244,47 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
 
     val fraction: Double get() = alongM / course.lengthM
 
+    /**
+     * 시연용 구간 재생(11/8): 코스 중간에서 시작할 때 기록상 거리(m). 있으면 출발점 대신 지금 위치 근처 코스 점에서 시작하고,
+     * 같은 길을 오가는 코스에서는 이 거리와 가장 가까운 쪽(같은 방향) 점을 고릅니다. 앞쪽 지점은 지난 것으로 칩니다.
+     */
+    var midStartHintM: Double? = null
+
+    private fun startMid(lat: Double, lng: Double, hint: Double): Boolean {
+        val near = course.lat.indices.filter { distanceMeters(lat, lng, course.lat[it], course.lng[it]) <= MID_START_M }
+        // 힌트(기록 속도로 쌓은 거리)는 코스 거리와 어긋남(코스 앞 자름·GPS와 속도 적분 차이). 그래서 힌트로는
+        // 오가는 길 중 어느 쪽인지만 고르고, 그쪽 점들 가운데 지금 위치에 가장 가까운 점에서 시작합니다
+        // (11/8 1095초 구간: 힌트로만 고르면 바로 앞 좌회전을 지난 점이 골라져 "지점을 지났어요"가 나옴).
+        val pass = near.minByOrNull { kotlin.math.abs(course.cumM[it] - hint) } ?: return false
+        val k = near.filter { kotlin.math.abs(course.cumM[it] - course.cumM[pass]) <= 2 * MID_START_M }
+            .minByOrNull { distanceMeters(lat, lng, course.lat[it], course.lng[it]) } ?: pass
+        onCourse = true
+        locked = true
+        idx = k
+        alongM = course.cumM[k]
+        course.checkpoints.forEachIndexed { i, cp ->
+            // 구간 지점(제한속도·보호구역 등)은 끝까지 지났을 때만 지난 것으로 칩니다(시작 위치가 구간 안일 수 있음)
+            val end = if (cp.type.isZone) cp.atM + cp.radiusM else cp.atM
+            if (end < alongM) {
+                judged += i
+                announced += i
+                turnStages[i] = TurnStage.NOW
+            } else if (cp.type.isZone && cp.atM - cp.radiusM < alongM) {
+                announced += i // 이미 구간 안: 예고는 하지 않고 판정·표지만
+            }
+        }
+        return true
+    }
+
     fun onState(s: VehicleState): List<CourseEvent> {
         val lat = s.latitude ?: return emptyList()
         val lng = s.longitude ?: return emptyList()
         if (done) return emptyList()
         val out = ArrayList<CourseEvent>()
+        val hint = midStartHintM
+        if (!onCourse && hint != null && startMid(lat, lng, hint)) {
+            midStartHintM = null
+        }
         if (!onCourse) {
             if (distanceMeters(lat, lng, course.lat[0], course.lng[0]) > t.startRadiusM) {
                 if (!toldNotAtStart) {
@@ -288,8 +326,11 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
         val prevAlong = alongM
         idx = best
         alongM = maxOf(alongM, course.cumM[idx])
-        val kmh = s.speedKmh ?: 0f
-        lastKmh = kmh
+        // 채점에는 받은 속도만 씁니다. 속도가 없으면 안내 거리 계산에만 마지막 값을 쓰고 최저·최고 속도에는 넣지 않습니다
+        // (11/8 Codex 점검 3: 속도 없음을 0km/h로 바꿔 일시정지·서행을 통과로 판정했음)
+        val real = s.speedKmh
+        val kmh = real ?: lastKmh
+        if (real != null) lastKmh = real
         againAfterStop(s.timeMs, kmh, out)
         if (alongM - prevAlong > t.maxJumpM) {
             // 건너뛴 구간의 지점은 판정·안내하지 않고 넘어갑니다.
@@ -302,7 +343,7 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
             }
             zones.clear()
         }
-        checkpoints(prevAlong, kmh, out)
+        checkpoints(prevAlong, kmh, real, out)
         val tenth = (fraction * 10).toInt()
         if (tenth != lastTenth) {
             lastTenth = tenth
@@ -314,22 +355,38 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
         if (fraction >= t.doneFraction && (!turnPending || alongM >= course.lengthM - TURN_DONE_M)) {
             done = true
             // 코스 끝까지 이어진 구간(예: 보호구역이 도착 근처까지)은 빠져나가기 전에 끝나므로 여기서 판정합니다(11/7 재생에서 찾음).
-            course.checkpoints.forEachIndexed { i, cp ->
-                val z = zones[i]
-                if (z != null && i !in judged) {
-                    judged += i
-                    val e = judge(cp, z[0], z[1])
-                    e?.let { out += it }
-                    if (cp.type.isZone) {
-                        val limit = cp.limitKmh ?: if (cp.type == CheckpointType.SCHOOL) t.schoolKmh else t.slowKmh
-                        results += PointResult(cp.type, cp.name, e == null || (e as? CourseEvent.Passed)?.ok == true, "최고 ${z[1].toInt()}km/h (제한 ${limit.toInt()})")
-                    }
-                }
-            }
-            zones.clear()
+            settleOpenZones(out)
             out += CourseEvent.Done
         }
         return out
+    }
+
+    /**
+     * 주행을 끝낼 때(운전석 문) 아직 안에 있는 구간을 그때까지의 속도로 판정합니다. 이미 끝났으면 아무것도 하지 않습니다.
+     * (11/8 Codex 점검 1: 보호구역 안에서 끝내면 넘는 순간 "시험이면 실격" 안내만 있고 실격이 결과에 없었음)
+     */
+    fun finish(): List<CourseEvent> {
+        if (done) return emptyList()
+        val out = ArrayList<CourseEvent>()
+        settleOpenZones(out)
+        done = true
+        return out
+    }
+
+    private fun settleOpenZones(out: MutableList<CourseEvent>) {
+        course.checkpoints.forEachIndexed { i, cp ->
+            val z = zones[i]
+            if (z != null && i !in judged) {
+                judged += i
+                val e = judge(cp, z[0], z[1])
+                e?.takeUnless { it is CourseEvent.ZoneOver && i in zoneDq }?.let { out += it }
+                if (cp.type.isZone) {
+                    val limit = cp.limitKmh ?: if (cp.type == CheckpointType.SCHOOL) t.schoolKmh else t.slowKmh
+                    results += PointResult(cp.type, cp.name, e == null || (e as? CourseEvent.Passed)?.ok == true, "최고 ${z[1].toInt()}km/h (제한 ${limit.toInt()})")
+                }
+            }
+        }
+        zones.clear()
     }
 
     /**
@@ -424,17 +481,20 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
         return to.toInt().coerceAtLeast(0) to cp?.type
     }
 
-    /** 지금 들어와 있는 제한속도·보호구역 구간과 그 제한속도. */
+    /**
+     * 지금 들어와 있는 제한속도·보호구역 구간과 그 제한속도. 겹치면 가장 낮은 제한속도, 같으면 보호구역을 보여 줍니다
+     * (11/8 사용자 지적: 제한속도 50 구간 안의 보호구역에서 표지가 50으로 나왔음).
+     */
     fun activeZoneLimit(): Pair<Checkpoint, Float>? {
         if (!onCourse || done) return null
-        val cp = course.checkpoints.firstOrNull {
-            (it.type == CheckpointType.SPEED || it.type == CheckpointType.SCHOOL) && alongM in (it.atM - it.radiusM)..(it.atM + it.radiusM)
-        } ?: return null
-        val limit = cp.limitKmh ?: if (cp.type == CheckpointType.SCHOOL) t.schoolKmh else return null
-        return cp to limit
+        return course.checkpoints
+            .filter { (it.type == CheckpointType.SPEED || it.type == CheckpointType.SCHOOL) && alongM in (it.atM - it.radiusM)..(it.atM + it.radiusM) }
+            .mapNotNull { cp -> (cp.limitKmh ?: if (cp.type == CheckpointType.SCHOOL) t.schoolKmh else null)?.let { cp to it } }
+            .minWithOrNull(compareBy<Pair<Checkpoint, Float>> { it.second }.thenBy { if (it.first.type == CheckpointType.SCHOOL) 0 else 1 })
     }
 
-    private fun checkpoints(prevAlong: Double, kmh: Float, out: MutableList<CourseEvent>) {
+    /** kmh: 안내용(속도가 없으면 마지막 값), real: 받은 속도(없으면 null, 채점에 넣지 않음). */
+    private fun checkpoints(prevAlong: Double, kmh: Float, real: Float?, out: MutableList<CourseEvent>) {
         // 한 번에 여러 지점 예고가 몰리면(코스에 막 들어왔을 때 등) 가장 가까운 하나만 말합니다(11/8 2차 재생: 4개가 한꺼번에).
         // 나머지도 예고한 것으로 쳐서 나중에 늦게 나오지 않게 합니다. FHWA: 한 번에 줄 정보는 3~4개 이하.
         var aheadSaid = false
@@ -445,8 +505,8 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
                 val wFrom = cp.atM - t.turnSlowBeforeM
                 val wTo = cp.atM + t.turnSlowAfterM
                 // 구간 안에 위치가 들어왔거나, 한 번에 구간을 건너뛰었으면(위치 1초 간격·빠른 속도) 그때 속도로 봅니다
-                if (slowJudged && i !in judged && (alongM in wFrom..wTo || (prevAlong < wFrom && alongM > wTo))) {
-                    turnMin[i] = minOf(turnMin[i] ?: Float.MAX_VALUE, kmh)
+                if (real != null && slowJudged && i !in judged && (alongM in wFrom..wTo || (prevAlong < wFrom && alongM > wTo))) {
+                    turnMin[i] = minOf(turnMin[i] ?: Float.MAX_VALUE, real)
                 }
                 // 회전 지점을 10m 넘게 지나면 회전한 것으로 기록합니다(놓쳤으면 checkMissedTurn에서 먼저 기록됨).
                 if (i !in judged && alongM > cp.atM + TURN_DONE_M) {
@@ -467,7 +527,11 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
                 announced += i
                 // 횡단보도는 좌·우회전 지점에 있을 때만 예고합니다(직진 중 횡단보도는 신호대로 지나면 됨, 11/8 사용자 결정)
                 val say = cp.type != CheckpointType.CROSSWALK || crosswalkAtTurn(cp)
-                if (say && !aheadSaid) {
+                // 제한속도·보호구역 예고는 방지턱·횡단보도 예고에 밀려 사라지지 않게 따로 말합니다
+                // (11/8 사용자 지적, 전체 녹화: 1250초 보호구역 예고가 방지턱에, 1404초 "제한속도 50"이 횡단보도에 밀려 빠짐)
+                if (say && cp.type.isZone) {
+                    out += CourseEvent.Ahead(cp, (start - alongM).coerceAtLeast(0.0).toInt())
+                } else if (say && !aheadSaid) {
                     out += CourseEvent.Ahead(cp, (start - alongM).coerceAtLeast(0.0).toInt())
                     aheadSaid = true
                 }
@@ -477,18 +541,18 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
             val end = if (cp.type.isZone) cp.atM + cp.radiusM else cp.atM
             val inside = alongM in start..end
             val crossed = prevAlong < start && alongM > end
-            if (inside || crossed) {
+            if ((inside || crossed) && real != null) {
                 val z = zones.getOrPut(i) { floatArrayOf(Float.MAX_VALUE, 0f) }
-                z[0] = minOf(z[0], kmh)
-                z[1] = maxOf(z[1], kmh)
-                if (inside) speedOverNow(i, cp, kmh, out)
+                z[0] = minOf(z[0], real)
+                z[1] = maxOf(z[1], real)
+                if (inside) speedOverNow(i, cp, real, out)
             }
             val z = zones[i]
             if (z != null && alongM > end) {
                 judged += i
                 zones.remove(i)
                 val e = judge(cp, z[0], z[1])
-                e?.let { out += it }
+                e?.takeUnless { it is CourseEvent.ZoneOver && i in zoneDq }?.let { out += it }
                 results += when (cp.type) {
                     // 횡단보도는 판정하지 않고(ok=null) 참고로 속도만 남깁니다. 43번은 동승자 체크.
                     CheckpointType.CROSSWALK ->
@@ -525,6 +589,9 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
         if (level > (overLevels[i] ?: 0)) {
             overLevels[i] = level
             out += CourseEvent.SpeedOver(cp, kmh, limit, level)
+            // 실격 기준을 넘는 순간 실격으로 기록합니다(구간을 나갈 때가 아니라). 나갈 때는 다시 내지 않습니다
+            // (11/8 사용자 지적: 149초 과속의 실격이 그 구간이 끝나는 889초에 나와 영상에서 엉뚱한 곳에 실격이 보였음)
+            if (level >= 2 && zoneDq.add(i)) out += CourseEvent.ZoneOver(cp, kmh, limit)
         }
     }
 
@@ -581,5 +648,8 @@ class CourseTracker(val course: Course, private val t: CourseThresholds = Course
 
     private companion object {
         const val TURN_DONE_M = 10.0
+
+        /** 코스 중간에서 잡을 때 지금 위치에서 이 거리 안의 코스 점만 봅니다(멀면 바로 이탈로 보임, 11/8). */
+        const val MID_START_M = 40.0
     }
 }

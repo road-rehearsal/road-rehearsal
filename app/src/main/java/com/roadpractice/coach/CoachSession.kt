@@ -26,10 +26,24 @@ class CoachSession(
 
     val result: ExamResult get() = ExamResult(deductions.toList(), disqualified.toList())
 
+    /** 시연용 구간 재생: 이미 차로 위(교차로 정차 등)에서 시작합니다. 가장자리 출발(11~13번)은 보지 않습니다. */
+    fun startMidRoad() {
+        rules.startsAtRoadEdge = false
+    }
+
     /** 새 차량 상태를 넣습니다. 이번에 생긴 사건을 돌려줍니다. */
     fun onState(state: VehicleState): List<ExamEvent> {
         val events = if (ended) ArrayList() else rules.onState(state).toMutableList()
         if (rules.isActive && !ended && events.none { it is ExamEvent.Ended }) events += courseEvents(state)
+        // 운전석 문으로 끝낼 때 아직 안에 있는 구간(보호구역·제한속도)을 정산합니다. 결과 기록 순서를 지키려고 Ended 앞에 넣습니다
+        // (11/8 Codex 점검 1: 보호구역 안에서 끝내면 "시험이면 실격" 안내만 있고 실격이 결과에 없었음)
+        val endAt = events.indexOfFirst { it is ExamEvent.Ended }
+        if (endAt >= 0 && course != null) events.addAll(endAt, course.finish().mapNotNull { mapCourse(it, state.timeMs) })
+        // P가 아닌 기어로 켜져 채점을 시작하지 못하면 한 번 알립니다(11/8 사용자 결정 (가)). 두 모드 모두
+        if (!started && !ended && rules.needsPark && !toldPark) {
+            toldPark = true
+            events += ExamEvent.Guide(PARK_FIRST, null, state.timeMs)
+        }
         val extra = ArrayList<ExamEvent>()
         events.forEach { event ->
             when (event) {
@@ -63,8 +77,10 @@ class CoachSession(
      */
     private fun courseEvents(state: VehicleState): List<ExamEvent> {
         val tracker = course ?: return emptyList()
-        val t = state.timeMs
-        return tracker.onState(state).mapNotNull { e ->
+        return tracker.onState(state).mapNotNull { mapCourse(it, state.timeMs) }
+    }
+
+    private fun mapCourse(e: CourseEvent, t: Long): ExamEvent? =
             when (e) {
                 is CourseEvent.Ahead -> when {
                     e.checkpoint.type.isTurn ->
@@ -94,13 +110,14 @@ class CoachSession(
                 is CourseEvent.Progress -> null
                 CourseEvent.NotAtStart -> ExamEvent.Guide("코스 출발점에서 시작하면 코스를 따라 안내해요", e, t)
             }
-        }
-    }
 
-    private companion object {
-        val HARD_ITEMS = setOf(ExamItem.HARD_START, ExamItem.HARD_BRAKE)
+    private var toldPark = false
+
+    companion object {
+        const val PARK_FIRST = "기어를 P로 바꾼 뒤 출발하면 채점을 시작해요"
+        private val HARD_ITEMS = setOf(ExamItem.HARD_START, ExamItem.HARD_BRAKE)
         /** 별표 26 실격 1) "3회 이상". */
-        const val REPEATED_HARD_COUNT = 3
+        private const val REPEATED_HARD_COUNT = 3
     }
 
     /** 실격 기준을 넘는 순간 이미 말한 구간(구간을 나갈 때 실격 문장을 또 말하지 않음). */

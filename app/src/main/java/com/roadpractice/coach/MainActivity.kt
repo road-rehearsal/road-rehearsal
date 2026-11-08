@@ -74,12 +74,21 @@ class MainActivity : ComponentActivity() {
     /**
      * 시연용 재생(디버그 빌드만): adb로 기록 파일 이름을 넘기면 그 기록으로 바로 시작합니다.
      *   am start --user 10 -n com.roadpractice.coach/.MainActivity --es replay drive.csv --es course my_route_1 --es mode EXAM --ei replaySpeed 4
+     * 시연 화면(11/8): --ei replayFrom 1380 --ei replayTo 1520 --ez replayMixed true
+     *   (구간만, 깜빡이·문·안전띠·기어·브레이크는 Virtual Console에서)
+     *   --ei replayHold 25: 기록 전에 D로 25초 서 있기(5번), --ez replayEdge true: 구간 시작을 길가 출발로(11~13번)
+     *   섞기 모드의 끝은 조작판에서 운전석 문을 열 때(44·46번)
      */
     private fun startReplayIfAsked(i: Intent?) {
         val file = i?.getStringExtra(CoachService.EXTRA_REPLAY) ?: return
         if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE == 0) return
         val mode = runCatching { CoachMode.valueOf(i.getStringExtra("mode") ?: "PRACTICE") }.getOrDefault(CoachMode.PRACTICE)
-        CoachService.start(this, mode, i.getStringExtra("course"), file, i.getIntExtra(CoachService.EXTRA_REPLAY_SPEED, 1))
+        CoachService.start(
+            this, mode, i.getStringExtra("course"), file, i.getIntExtra(CoachService.EXTRA_REPLAY_SPEED, 1),
+            i.getIntExtra(CoachService.EXTRA_REPLAY_FROM, 0), i.getIntExtra(CoachService.EXTRA_REPLAY_TO, Int.MAX_VALUE),
+            i.getBooleanExtra(CoachService.EXTRA_REPLAY_MIXED, false),
+            i.getIntExtra(CoachService.EXTRA_REPLAY_HOLD, 0), i.getBooleanExtra(CoachService.EXTRA_REPLAY_EDGE, false),
+        )
         i.removeExtra(CoachService.EXTRA_REPLAY)
     }
 

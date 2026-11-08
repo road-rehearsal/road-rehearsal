@@ -55,8 +55,8 @@ sealed interface ExamEvent {
     data class Started(override val timeMs: Long) : ExamEvent
     data class Ended(override val timeMs: Long) : ExamEvent
 
-    /** 코스 안내 문장. 감점이 아니라 길 안내입니다. */
-    data class Guide(val text: String, val course: CourseEvent, override val timeMs: Long) : ExamEvent
+    /** 안내 문장. 감점이 아닙니다. course가 null이면 코스와 상관없는 안내(예: P에서 시작)입니다. */
+    data class Guide(val text: String, val course: CourseEvent?, override val timeMs: Long) : ExamEvent
 }
 
 /**
@@ -91,6 +91,8 @@ class ExamRules(private val t: ExamThresholds = ExamThresholds()) {
     private var stopScored = false
     private var noBrakeScored = false
     private var turning = false
+    /** 이번 회전에서 신호를 이미 확인했는가(느릴 때 꺾기 시작하면 움직일 때까지 미룸). */
+    private var turnChecked = false
     private var turnEndM = -1.0
     private var signalOnAtTurnEnd = false
     private var signalOnM = -1.0
@@ -100,6 +102,18 @@ class ExamRules(private val t: ExamThresholds = ExamThresholds()) {
     private val speedHistory = ArrayDeque<Pair<Long, Float>>()
 
     val isActive: Boolean get() = active
+
+    /**
+     * 이미 P가 아닌 기어(D·R·N)로 앱이 켜져 시작하지 못하고 있는가. 채점은 P에서 빼는 순간 시작합니다
+     * (11/8 사용자 결정 (가): 자동 시작하지 않고 "P에서 시작" 안내. 시험 시작 시점을 앱이 짐작하지 않음).
+     */
+    val needsPark: Boolean get() = !active && before?.gear.let { it == Gear.DRIVE || it == Gear.REVERSE || it == Gear.NEUTRAL }
+
+    /**
+     * 출발이 도로 가장자리에서 차로로 들어가는 것인가(11~13번 판정). 시연용 구간 재생처럼 이미 차로 위에서
+     * 시작하면 false로 두어, 첫 회전을 "가장자리 출발"로 잘못 보지 않게 합니다(11/8).
+     */
+    var startsAtRoadEdge = true
 
     /** 새 상태를 넣으면 이번에 생긴 사건을 돌려줍니다. */
     fun onState(s: VehicleState): List<ExamEvent> {
@@ -126,10 +140,11 @@ class ExamRules(private val t: ExamThresholds = ExamThresholds()) {
         stoppedAt = -1L
         noBrakeAt = -1L
         turning = false
+        turnChecked = false
         turnEndM = -1.0
         signalOnAtTurnEnd = false
         signalOnM = if (s.turnSignal.isOn) s.distanceM else -1.0
-        edgePhase = true
+        edgePhase = startsAtRoadEdge
         beltLatched = false
         lastScored.clear()
         speedHistory.clear()
@@ -205,7 +220,8 @@ class ExamRules(private val t: ExamThresholds = ExamThresholds()) {
     private fun checkSignals(prev: VehicleState, s: VehicleState, out: MutableList<ExamEvent>) {
         val signalOn = s.turnSignal.isOn
         val signalKnown = s.turnSignal != TurnSignal.UNKNOWN
-        if (signalOn && !prev.turnSignal.isOn) signalOnM = s.distanceM
+        // 켤 때뿐 아니라 방향을 바꿀 때(왼쪽 ↔ 오른쪽)도 30m를 새로 셉니다(11/8 Codex 점검 5: 앞 방향으로 달린 거리가 인정됐음)
+        if (signalOn && (!prev.turnSignal.isOn || prev.turnSignal != s.turnSignal)) signalOnM = s.distanceM
         if (!signalOn && prev.turnSignal.isOn && signalKnown) {
             if (turning && s.isMoving) deduct(if (edgePhase) ExamItem.EDGE_SIGNAL_OFF else ExamItem.SIGNAL_NOT_KEPT, s, out)
             signalOnM = -1.0
@@ -221,12 +237,18 @@ class ExamRules(private val t: ExamThresholds = ExamThresholds()) {
             val big = steer >= t.turnSteerDeg
             if (big && !turning) {
                 turning = true
+                turnChecked = false
                 turnEndM = -1.0
-                if (signalKnown && (s.speedKmh ?: 0f) >= (if (edgePhase) VehicleState.MOVING_KMH else t.turnMinKmh)) {
-                    when {
-                        !signalOn -> deduct(if (edgePhase) ExamItem.EDGE_NO_SIGNAL else ExamItem.TURN_NO_SIGNAL, s, out)
-                        !edgePhase && s.distanceM - signalOnM < t.signalBeforeM -> deduct(ExamItem.SIGNAL_LATE, s, out)
-                    }
+            }
+            // 회전 시작 때 느리면(서서 핸들을 먼저 꺾음) 신호 확인을 미뤄, 꺾은 채 움직이기 시작할 때 봅니다
+            // (11/8 Codex 점검 2: 정차 중 회전 시작을 써 버려 11·30·31번이 빠졌음)
+            if (big && turning && !turnChecked && signalKnown &&
+                (s.speedKmh ?: 0f) >= (if (edgePhase) VehicleState.MOVING_KMH else t.turnMinKmh)
+            ) {
+                turnChecked = true
+                when {
+                    !signalOn -> deduct(if (edgePhase) ExamItem.EDGE_NO_SIGNAL else ExamItem.TURN_NO_SIGNAL, s, out)
+                    !edgePhase && s.distanceM - signalOnM < t.signalBeforeM -> deduct(ExamItem.SIGNAL_LATE, s, out)
                 }
             } else if (!big && turning) {
                 turning = false

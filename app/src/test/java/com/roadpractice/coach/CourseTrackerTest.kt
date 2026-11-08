@@ -87,6 +87,43 @@ class CourseTrackerTest {
     }
 
     @Test
+    fun midStartPicksSameDirectionLegOnRoundTrip() {
+        // 왕복 코스 가운데(돌아오는 길, 약 600m)에서 시작: 같은 좌표가 갈 때(약 200m)에도 있지만 힌트로 돌아오는 쪽을 고름
+        val goingCw = Checkpoint(CheckpointType.CROSSWALK, "갈 때 횡단보도", 200.0, 30.0)
+        val tr = CourseTracker(course(goingCw))
+        tr.midStartHintM = 640.0
+        tr.onState(at(29, 20f)) // 29번 점 = 돌아오는 길, 갈 때 9번 점과 같은 좌표
+        assertTrue("시작 거리 ${tr.alongM}", tr.alongM > 500)
+        // 갈 때 지점은 지난 것으로 쳐서 판정하지 않음
+        val events = (30 until lat.size).flatMap { tr.onState(at(it, 20f)) }
+        assertTrue(events.none { it is CourseEvent.Passed })
+        assertTrue(events.last() is CourseEvent.Done)
+    }
+
+    @Test
+    fun midStartUsesNearestPointNotHintDistance() {
+        // 힌트가 실제보다 크게 어긋나도(기록 속도 적분 거리, 11/8) 지금 위치에서 시작해 바로 앞 지점을 지난 것으로 치지 않음
+        val cw = Checkpoint(CheckpointType.CROSSWALK, "횡단보도", 7 * 22.0 + 15, 30.0) // 7번 점 15m 앞
+        val tr = CourseTracker(course(cw))
+        tr.midStartHintM = 7 * 22.0 + 35 // 실제(7번 점)보다 35m 큼
+        tr.onState(at(7, 0f))
+        assertTrue("시작 거리 ${tr.alongM}", tr.alongM < 7 * 22.0 + 5)
+        val events = (7 until 19).flatMap { tr.onState(at(it, 20f)) }
+        assertEquals(1, events.count { it is CourseEvent.Passed })
+    }
+
+    @Test
+    fun midStartInsideZoneStillJudgesZone() {
+        // 보호구역 안(가운데보다 뒤)에서 시작해도 구간은 판정합니다
+        val school = Checkpoint(CheckpointType.SCHOOL, "어린이보호구역", 200.0, 150.0, 30f)
+        val tr = CourseTracker(course(school))
+        tr.midStartHintM = 270.0
+        val events = (12 until lat.size).flatMap { tr.onState(at(it, 40f)) }
+        assertEquals(1, events.count { it is CourseEvent.ZoneOver })
+        assertTrue(events.none { it is CourseEvent.Ahead })
+    }
+
+    @Test
     fun turnNotSlowDeducts37InSession() {
         val right = Checkpoint(CheckpointType.RIGHT, "우회전", 300.0, 15.0)
         val s = CoachSession(CoachMode.EXAM, say = { }, course = CourseTracker(course(right)))
@@ -180,6 +217,75 @@ class CourseTrackerTest {
         for (k in 1..15) session.onState(at(k, 45f).copy(gear = Gear.DRIVE))
         assertEquals(listOf(Disqualification.SCHOOL_ZONE_SPEED), session.result.disqualified)
         assertTrue(said.isEmpty()) // 시험 모드는 말하지 않음
+    }
+
+    @Test
+    fun sessionSettlesZoneWhenEndingInside() {
+        // 11/8 Codex 점검 1: 보호구역(50~350m) 안에서 운전석 문으로 끝내도 실격이 결과에 남음
+        val school = Checkpoint(CheckpointType.SCHOOL, "어린이보호구역", 200.0, 150.0, 30f)
+        val session = CoachSession(CoachMode.PRACTICE, say = { }, course = CourseTracker(course(school)))
+        time = 0
+        session.onState(at(0, 0f).copy(gear = Gear.PARK))
+        session.onState(at(0, 0f).copy(gear = Gear.DRIVE))
+        for (k in 1..8) session.onState(at(k, 40f).copy(gear = Gear.DRIVE))
+        session.onState(at(8, 0f).copy(gear = Gear.PARK, parkingBrakeOn = true))
+        session.onState(at(8, 0f).copy(gear = Gear.PARK, parkingBrakeOn = true, openDoors = setOf(ExamRules.DRIVER_DOOR)))
+        assertTrue(session.ended)
+        assertTrue(Disqualification.SCHOOL_ZONE_SPEED in session.result.disqualified)
+    }
+
+    @Test
+    fun zoneNoticeNotSwallowedByBump() {
+        // 11/8 사용자 지적: 방지턱 예고와 같은 때 온 보호구역 예고가 사라졌음
+        val bump = Checkpoint(CheckpointType.BUMP, "과속방지턱", 200.0, 10.0)
+        val school = Checkpoint(CheckpointType.SCHOOL, "어린이보호구역", 230.0, 40.0, 30f)
+        val ahead = drive(CourseTracker(course(bump, school)), 20f).filterIsInstance<CourseEvent.Ahead>()
+        assertTrue(ahead.any { it.checkpoint.type == CheckpointType.SCHOOL })
+        assertTrue(ahead.any { it.checkpoint.type == CheckpointType.BUMP })
+    }
+
+    @Test
+    fun speedZoneDisqualifiesWhenOverNotAtExit() {
+        // 11/8 사용자 지적: 실격은 넘는 순간(구간을 나갈 때가 아니라), 한 번만
+        val zone = Checkpoint(CheckpointType.SPEED, "제한속도 30", 200.0, 150.0, 30f)
+        val tr = CourseTracker(course(zone))
+        val early = (0..6).flatMap { tr.onState(at(it, 45f)) } // 약 130m, 구간(50~350m) 안
+        assertEquals(1, early.count { it is CourseEvent.ZoneOver })
+        val rest = (7 until lat.size).flatMap { tr.onState(at(it, 45f)) }
+        assertEquals(0, rest.count { it is CourseEvent.ZoneOver })
+    }
+
+    @Test
+    fun overlappingZonesShowStricterSign() {
+        // 11/8 사용자 지적: 제한속도 50 구간 안 보호구역에서 표지가 50으로 나왔음
+        val speed = Checkpoint(CheckpointType.SPEED, "제한속도 50", 200.0, 180.0, 50f)
+        val school = Checkpoint(CheckpointType.SCHOOL, "어린이보호구역", 200.0, 30.0, 30f)
+        val tr = CourseTracker(course(speed, school))
+        (0..9).forEach { tr.onState(at(it, 20f)) } // 약 198m
+        val (cp, limit) = tr.activeZoneLimit()!!
+        assertEquals(CheckpointType.SCHOOL, cp.type)
+        assertEquals(30f, limit, 0f)
+    }
+
+    @Test
+    fun unknownSpeedDoesNotProveStop() {
+        // 11/8 Codex 점검 3: 속도 값이 없으면 일시정지를 통과로 판정하지 않음
+        val tr = CourseTracker(course(Checkpoint(CheckpointType.STOP, "일시정지", 200.0, 20.0)))
+        for (k in 0..19) tr.onState(at(k, 20f).copy(speedKmh = null))
+        assertTrue(tr.pointResults.none { it.type == CheckpointType.STOP && it.ok == true })
+    }
+
+    @Test
+    fun sessionAsksForParkWhenStartedInDrive() {
+        // 11/8 사용자 결정 (가): D로 켜지면 한 번 "P로 바꾼 뒤 출발" 안내, 채점은 시작하지 않음
+        val said = ArrayList<String>()
+        val session = CoachSession(CoachMode.EXAM, say = { said += it })
+        time = 0
+        session.onState(at(0, 0f).copy(gear = Gear.DRIVE))
+        session.onState(at(0, 5f).copy(gear = Gear.DRIVE))
+        session.onState(at(1, 5f).copy(gear = Gear.DRIVE))
+        assertEquals(listOf(CoachSession.PARK_FIRST), said)
+        assertFalse(session.started)
     }
 
     @Test
