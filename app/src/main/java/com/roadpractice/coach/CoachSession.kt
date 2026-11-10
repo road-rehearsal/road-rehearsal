@@ -135,7 +135,7 @@ class CoachSession(
     /** 지점 예고 문장. 제한속도·보호구역은 숫자를 함께 말합니다(11/8: 구간이 바뀔 때 무엇으로 바뀌는지 알게). */
     private fun aheadSentence(cp: Checkpoint): String = when (cp.type) {
         CheckpointType.SPEED -> cp.limitKmh?.let { "앞으로 제한속도 ${it.toInt()}이에요" } ?: cp.type.ahead
-        CheckpointType.SCHOOL -> "앞에 어린이보호구역이 있어요. ${(cp.limitKmh ?: 30f).toInt()} 이하로 가요"
+        CheckpointType.SCHOOL -> "앞에 어린이보호구역이 있어요. 시속 ${(cp.limitKmh ?: 30f).toInt()}km 이하로 가요"
         else -> cp.type.ahead
     }
 

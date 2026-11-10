@@ -69,7 +69,7 @@ fun HomeScreen(ui: HomeUi, onCourse: (Int) -> Unit, onStart: (CoachMode) -> Unit
     }
     val start: @Composable (Modifier) -> Unit = { m ->
         Column(m, verticalArrangement = Arrangement.spacedBy(sp.m)) {
-            Text("도로주행 연습 코치", style = MaterialTheme.typography.headlineLarge, color = Road.Ink)
+            Text("로드 리허설", style = MaterialTheme.typography.headlineLarge, color = Road.Ink)
             Text(
                 "실제 시험 코스와 채점 항목으로, 차가 조작을 봐 드려요.",
                 style = MaterialTheme.typography.bodyLarge, color = Road.Graphite,

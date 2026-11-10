@@ -70,7 +70,7 @@ class SpeechQueueTest {
     fun turnGuideJumpsAheadOfWaitingSentences() {
         // 11/8 Codex 점검 7: "지금 우회전"이 기다리던 보호구역 예고보다 먼저
         queue.say("오래 설 때는 중립이에요")
-        queue.say("앞에 어린이보호구역이 있어요. 30 이하로 가요")
+        queue.say("앞에 어린이보호구역이 있어요. 시속 30km 이하로 가요")
         queue.say("지금 우회전 뒤 바로 좌회전해요")
         done.removeAt(0).invoke()
         assertEquals("지금 우회전 뒤 바로 좌회전해요", spoken.last())
