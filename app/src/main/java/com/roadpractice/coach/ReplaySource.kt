@@ -15,7 +15,7 @@ import kotlin.math.abs
  * 순서: P(정지) → D → 기록 그대로 → 끝에서 P, 운전석 문 열림(주행 끝).
  * 판정 시간은 기록 시각을 그대로 쓰고, 재생만 [speed]배 빠르게 합니다.
  *
- * 섞기 모드(11/8, 시연 화면): [live]가 있으면 속도·위치·조향각은 기록에서, 깜빡이·문·안전띠·기어·브레이크·주차 브레이크는
+ * 섞기 모드(11/8, 시연 화면): [live]가 있으면 속도·위치·조향각은 기록에서, 방향지시등·문·안전띠·기어·브레이크·주차 브레이크는
  * 실제 차량 신호(에뮬레이터 Virtual Console)에서 받습니다. 조향각은 기록에 없어 자이로(회전 속도)로 만듭니다.
  * 섞기 모드가 아니면 기록에 없는 신호는 "값 없음"이라 그 항목은 판정하지 않습니다.
  *
@@ -182,7 +182,7 @@ class ReplaySource(
     private fun heldSteering(at: Int): Float? =
         (maxOf(0, at - STEER_HOLD)..at).mapNotNull { steeringFromYaw(rows[it].yaw, rows[it].kmh) }.maxOrNull()
 
-    /** 기록 값(속도·위치·거리·조향)에 조작판 값(기어·깜빡이·문·안전띠·브레이크·주차 브레이크)을 덮습니다. */
+    /** 기록 값(속도·위치·거리·조향)에 조작판 값(기어·방향지시등·문·안전띠·브레이크·주차 브레이크)을 덮습니다. */
     private fun merge(s: VehicleState): VehicleState {
         val l = live?.invoke() ?: return s
         return s.copy(
@@ -228,7 +228,7 @@ class ReplaySource(
 
         /**
          * 자이로 회전 속도(rad/s)와 속도로 핸들 각도(도)를 근사합니다: 바퀴 각 ≈ 축간거리 × 회전 속도 / 속도, 핸들 = 바퀴 각 × 조향비.
-         * 축간거리 2.9m·조향비 15는 일반 승용차 값(추정). 깜빡이 판정이 "돌고 있다"를 알 수 있을 정도면 됩니다.
+         * 축간거리 2.9m·조향비 15는 일반 승용차 값(추정). 방향지시등 판정이 "돌고 있다"를 알 수 있을 정도면 됩니다.
          */
         fun steeringFromYaw(yaw: Float?, kmh: Float?): Float? {
             val y = yaw ?: return null

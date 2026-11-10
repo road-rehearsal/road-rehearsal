@@ -89,7 +89,7 @@ class SpeechQueueTest {
         assertEquals(true, SpeechQueue.isTurnGuide("지금 우회전 뒤 바로 좌회전해요"))
         assertEquals(true, SpeechQueue.isTurnGuide("지금 유턴해요"))
         assertEquals(false, SpeechQueue.isTurnGuide("좌회전 지점을 지났어요. 안전하게 코스로 돌아가요"))
-        assertEquals(false, SpeechQueue.isTurnGuide("출발할 때 깜빡이를 켜요"))
+        assertEquals(false, SpeechQueue.isTurnGuide("출발할 때 방향지시등을 켜요"))
     }
 
     @Test

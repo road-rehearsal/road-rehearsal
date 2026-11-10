@@ -364,8 +364,9 @@ private fun Summary(
     val verdict = when {
         ui.interrupted -> "기록이 중간에 끊겼어요"
         disqualified -> "실격 사유가 있어요"
-        passed -> "합격선을 넘었어요"
-        else -> "합격선까지 ${ScoreSheet.PASS_SCORE - sheet.score}점"
+        // 합격 판정처럼 읽히지 않게 "연습 기준"으로 씁니다(11/9 설명 영상 이해도 시험 지적, 사용자 결정).
+        passed -> "연습 기준 ${ScoreSheet.PASS_SCORE}점을 넘었어요"
+        else -> "연습 기준 ${ScoreSheet.PASS_SCORE}점까지 ${ScoreSheet.PASS_SCORE - sheet.score}점"
     }
     Panel(modifier) {
         val scroll = rememberScrollState()

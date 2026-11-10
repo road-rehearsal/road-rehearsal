@@ -12,7 +12,7 @@ import java.io.File
  *
  * 폴더에는 <기록>.csv, <기록>.course.json, <기록>.truth.json이 있어야 합니다(code/course-tools로 만듦).
  * 결과는 같은 폴더 replay_report.txt에 씁니다(좌표 없음).
- * 기록에는 기어·깜빡이·브레이크·조향이 없어(폰 기록) 그 항목은 값 없음으로 두고, 위치·속도로 보는 항목만 봅니다.
+ * 기록에는 기어·방향지시등·브레이크·조향이 없어(폰 기록) 그 항목은 값 없음으로 두고, 위치·속도로 보는 항목만 봅니다.
  */
 class ReplayTest {
     private val dir = System.getProperty("replay.dir").orEmpty()

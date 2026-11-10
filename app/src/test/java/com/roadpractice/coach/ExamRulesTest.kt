@@ -334,7 +334,7 @@ class ExamRulesTest {
         assertFalse(ExamItem.SIGNAL_NOT_CANCELED in items)
     }
 
-    /** 11/6 에뮬레이터 확인에서 찾은 오탐: 출발 진로를 바르게 마치고 10m 안에 다른 깜빡이를 켜면 33번이 나던 것. */
+    /** 11/6 에뮬레이터 확인에서 찾은 오탐: 출발 진로를 바르게 마치고 10m 안에 다른 방향지시등을 켜면 33번이 나던 것. */
     @Test
     fun newSignalSoonAfterProperEdgeIsNotCanceledFault() {
         startDriving()
@@ -351,7 +351,7 @@ class ExamRulesTest {
         assertTrue(items.isEmpty())
     }
 
-    /** 일반 회전도 같습니다: 돈 뒤 끄고 10m 안에 다른 깜빡이를 켜도 33번이 아닙니다. */
+    /** 일반 회전도 같습니다: 돈 뒤 끄고 10m 안에 다른 방향지시등을 켜도 33번이 아닙니다. */
     @Test
     fun newSignalSoonAfterCanceledTurnIsNotCanceledFault() {
         startDriving()
@@ -450,7 +450,7 @@ class ExamRulesTest {
 
     @Test
     fun preSteeredPullAwayStillNeedsSignal() {
-        // 11/8 Codex 점검 2: 길가에서 서서 핸들을 먼저 꺾고 깜빡이 없이 출발 → 11번
+        // 11/8 Codex 점검 2: 길가에서 서서 핸들을 먼저 꺾고 방향지시등 없이 출발 → 11번
         put(s)
         change { it.copy(gear = Gear.DRIVE, braking = false) }
         change { it.copy(timeMs = it.timeMs + 500, steeringAbsDeg = 60f) }
@@ -464,7 +464,7 @@ class ExamRulesTest {
 
     @Test
     fun preSteeredTurnFromStopStillNeedsSignal() {
-        // 교차로에서 서서 먼저 꺾고 깜빡이 없이 출발 → 30번
+        // 교차로에서 서서 먼저 꺾고 방향지시등 없이 출발 → 30번
         startDriving()
         passEdge()
         var v = 20f

@@ -13,16 +13,16 @@ enum class ExamItem(val number: Int, val points: Int, val title: String, val sen
     NO_START(5, 10, "20초 내 미출발", "준비되면 출발해요"),
     STOP_NOT_NEUTRAL(4, 5, "정지 중 기어 미중립", "오래 설 때는 중립이에요"),
     HARD_START(9, 7, "급조작·급출발", "조금 더 천천히 출발해요"),
-    EDGE_NO_SIGNAL(11, 5, "출발 때 신호 안 함", "출발할 때 깜빡이를 켜요"),
+    EDGE_NO_SIGNAL(11, 5, "출발 때 신호 안 함", "출발할 때 방향지시등을 켜요"),
     EDGE_SIGNAL_OFF(12, 5, "출발 때 신호 중지", "다 들어갈 때까지 켜 두세요"),
-    EDGE_SIGNAL_KEPT(13, 5, "출발 후 신호 계속", "깜빡이를 꺼 주세요"),
+    EDGE_SIGNAL_KEPT(13, 5, "출발 후 신호 계속", "방향지시등을 꺼 주세요"),
     COAST_NEUTRAL(18, 5, "정지 전 미리 중립", "멈추기 전에 중립은 안 돼요"),
     STOP_NO_BRAKE(20, 5, "정지 때 미제동", "브레이크를 밟아 주세요"),
     HARD_BRAKE(21, 7, "급브레이크 사용", "조금 더 부드럽게요"),
-    TURN_NO_SIGNAL(30, 7, "진로변경 신호 불이행", "다음엔 깜빡이 먼저요"),
+    TURN_NO_SIGNAL(30, 7, "진로변경 신호 불이행", "다음엔 방향지시등 먼저요"),
     SIGNAL_LATE(31, 7, "진로변경 30미터 전 미신호", "조금 더 일찍 켜 주세요"),
     SIGNAL_NOT_KEPT(32, 7, "진로변경 신호 미유지", "돌 때는 켜 두세요"),
-    SIGNAL_NOT_CANCELED(33, 7, "진로변경 신호 미중지", "깜빡이를 꺼 주세요"),
+    SIGNAL_NOT_CANCELED(33, 7, "진로변경 신호 미중지", "방향지시등을 꺼 주세요"),
     // 37·38은 코스 지점에서 판정합니다(CourseTracker). 코스 없이 달리면 보지 않습니다.
     SLOW_DOWN(37, 10, "서행 위반", "여기서는 천천히 가요"),
     STOP_SIGN(38, 10, "일시정지 위반", "여기서는 완전히 멈춰요"),
@@ -225,8 +225,8 @@ class ExamRules(private val t: ExamThresholds = ExamThresholds()) {
         if (!signalOn && prev.turnSignal.isOn && signalKnown) {
             if (turning && s.isMoving) deduct(if (edgePhase) ExamItem.EDGE_SIGNAL_OFF else ExamItem.SIGNAL_NOT_KEPT, s, out)
             signalOnM = -1.0
-            // 다 돈 뒤 깜빡이를 껐으면 그 회전은 바르게 끝난 것입니다. 회전 끝 기억을 지워,
-            // 10m 안에 켠 다음 깜빡이를 앞 회전의 "신호 미중지"(13·33번)로 보지 않게 합니다(11/6 에뮬레이터에서 찾은 오탐).
+            // 다 돈 뒤 방향지시등을 껐으면 그 회전은 바르게 끝난 것입니다. 회전 끝 기억을 지워,
+            // 10m 안에 켠 다음 방향지시등을 앞 회전의 "신호 미중지"(13·33번)로 보지 않게 합니다(11/6 에뮬레이터에서 찾은 오탐).
             if (!turning && turnEndM >= 0) {
                 turnEndM = -1.0
                 edgePhase = false
