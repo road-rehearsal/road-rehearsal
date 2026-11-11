@@ -4,7 +4,19 @@
 
 > 연습용 앱입니다. 공식 채점이나 합격을 보장하지 않습니다. 현재 개발 중입니다.
 
-## 실행
+## 설치 파일(APK)로 바로 실행
+서명된 release APK: [`apk/안승권_RoadRehearsal_release.apk`](apk/)(minSdk 28, targetSdk 34). Pleos Connect Emulator 2.1.0에서 앱은 user 10으로 실행되므로 설치·권한·실행에 모두 `--user 10`을 붙입니다.
+
+```bash
+adb install -r --user 10 apk/안승권_RoadRehearsal_release.apk
+adb shell pm grant --user 10 com.roadpractice.coach android.car.permission.CAR_SPEED
+adb shell pm grant --user 10 com.roadpractice.coach pleos.car.permission.FUSED_LOCATION
+adb shell am start --user 10 -n com.roadpractice.coach/.MainActivity
+```
+- 나머지 Pleos 권한(문·주행·등화·안전, 음성)은 매니페스트 선언만으로 씁니다(개발 단계 규칙). 알림 권한은 첫 실행 때 묻습니다.
+- release APK에는 아래 **시연용 재생이 없습니다.** 차량 신호는 에뮬레이터의 Virtual Console(`adb forward tcp:8088 tcp:8088` 뒤 http://127.0.0.1:8088/)로 넣습니다. 기어·브레이크·방향지시등·문·안전띠·속도를 바꾸면 그대로 채점됩니다. 시연 영상의 주행 장면은 debug 빌드의 시연용 재생으로 찍었고 화면에 "시연용 재생"이라고 표시됩니다.
+
+## 소스로 빌드해 실행
 요구 사항: JDK 17, Android SDK, Pleos Connect Emulator 2.1.0
 
 ```bash
@@ -57,11 +69,11 @@ adb shell am start --user 10 -n com.roadpractice.coach/.MainActivity --es replay
 ```
 
 ## 시험
-- `./gradlew testDebugUnitTest`: 판정·코스·결과표 단위 시험(83개).
+- `./gradlew testDebugUnitTest`: 판정·코스·결과표·채점 항목 단위 시험(127개, 11/11).
 - 실제 주행 기록으로 돌려 보기: `./gradlew testDebugUnitTest -PreplayDir=<기록 폴더>`. 폴더에 기록 CSV와 코스 JSON이 없으면 이 시험은 건너뜁니다.
 
 ## release 빌드
-`keystore.properties`(storeFile, storePassword, keyAlias, keyPassword)와 키 파일을 저장소 밖 또는 git 제외로 두고 `./gradlew assembleRelease`. 없으면 서명 없이 빌드됩니다.
+`keystore.properties`(storeFile, storePassword, keyAlias, keyPassword)와 키 파일을 저장소 밖 또는 git 제외로 두고 `./gradlew assembleRelease`. 없으면 서명 없이 빌드됩니다. 결과 `app/build/outputs/apk/release/app-release.apk`를 `apk/안승권_RoadRehearsal_release.apk`로 복사합니다. 서명 확인: `apksigner verify -v --print-certs <apk>`.
 
 ## 테스트 환경
 에뮬레이터와 Virtual Console(`adb forward tcp:8088 tcp:8088`)로 검증합니다. 실제 주행 기록은 폰으로 모은 뒤 위 재생으로 확인했습니다. 실차에 앱을 설치해 시험하지는 않았습니다.
