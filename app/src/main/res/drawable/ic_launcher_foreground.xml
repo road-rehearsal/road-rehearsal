@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 앱 아이콘 그림(11/11): 원근감 있는 도로(흰 선) + 가운데 차선(LaneYellow #F0B400) + 끝의 확인 표시(흰 선)
+     = "실제 도로에서 미리 해 보고 확인받는다". 독의 다른 아이콘처럼 흰 선 그림, 108dp 캔버스의 가운데 안전 영역(66dp) 안 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- 도로 가장자리 -->
+    <path android:pathData="M29,78 L46,47" android:strokeColor="#F7F7F2" android:strokeWidth="5.6" android:strokeLineCap="round" />
+    <path android:pathData="M79,78 L62,47" android:strokeColor="#F7F7F2" android:strokeWidth="5.6" android:strokeLineCap="round" />
+    <!-- 가운데 차선(점선, 멀수록 짧고 가늘게) -->
+    <path android:pathData="M54,77 L54,69" android:strokeColor="#F0B400" android:strokeWidth="5" android:strokeLineCap="round" />
+    <path android:pathData="M54,62 L54,57" android:strokeColor="#F0B400" android:strokeWidth="4.2" android:strokeLineCap="round" />
+    <path android:pathData="M54,51.5 L54,49" android:strokeColor="#F0B400" android:strokeWidth="3.4" android:strokeLineCap="round" />
+    <!-- 끝(지평선)의 확인 표시 -->
+    <path android:pathData="M46.5,35 L52,40.5 L62.5,30" android:strokeColor="#F7F7F2" android:strokeWidth="4.6"
+        android:strokeLineCap="round" android:strokeLineJoin="round" android:fillColor="#00000000" />
+</vector>
